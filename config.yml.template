@@ -1,0 +1,3 @@
+base_url: 'http://localhost:4001'
+cache_dir: 'image_cache'
+source_dir: 'beetle_images'
