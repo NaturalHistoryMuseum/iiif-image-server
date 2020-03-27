@@ -67,20 +67,20 @@ def image_info(image_name):
         'width': width,
         'height': height,
         'rights': 'https://creativecommons.org/publicdomain/zero/1.0/',
-        'profile': 'level1',
-        'tiles': [
-            {
-                'width': 256,
-                'height': 256,
-                'scaleFactors': [
-                    1,
-                    2,
-                    4,
-                    8,
-                    16,
-                ]
-            }
-        ]
+        'profile': 'level0',
+        # 'tiles': [
+        #     {
+        #         'width': 256,
+        #         'height': 256,
+        #         'scaleFactors': [
+        #             1,
+        #             2,
+        #             4,
+        #             8,
+        #             16,
+        #         ]
+        #     }
+        # ]
     })
 
 
