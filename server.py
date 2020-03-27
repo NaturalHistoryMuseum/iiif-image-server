@@ -62,6 +62,9 @@ def image_info(image_name):
 
     return jsonify({
         '@context': 'http://iiif.io/api/image/3/context.json',
+        # mirador/openseadragon seems to need this to work even though I don't think it's correct
+        # under the IIIF image API v3
+        '@id': '{}/{}'.format(config['base_url'], image_name),
         'id': '{}/{}'.format(config['base_url'], image_name),
         'protocol': 'http://iiif.io/api/image',
         'width': width,
