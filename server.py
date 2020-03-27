@@ -9,9 +9,9 @@ from flask import Flask, jsonify, send_file
 from flask_cors import CORS
 from jpegtran import JPEGImage
 
-with open('config.yml', 'r') as cf:
-    config = yaml.safe_load(cf)
 root_dir = os.path.dirname(os.path.realpath(__file__))
+with open(os.path.join(root_dir, 'config.yml'), 'r') as cf:
+    config = yaml.safe_load(cf)
 cache_dir = os.path.join(root_dir, config['cache_dir'])
 source_dir = os.path.join(root_dir, config['source_dir'])
 app = Flask(__name__)
