@@ -25,6 +25,7 @@ setup(
         'flask~=1.1.1',
         'Flask_Cors~=3.0.8',
         'pyyaml~=5.3.1',
+        'uWSGI~=2.0.18',
         f'jpegtran-cffi @ {jpegtran_url}',
     ],
     dependency_links=[
