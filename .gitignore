@@ -4,3 +4,4 @@ beetle_images
 config.yml
 venv
 image_cache
+uwsgi.ini
