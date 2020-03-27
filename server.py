@@ -37,7 +37,7 @@ def image_data(image_name, region, size):
             x, y, w, h = map(int, region.split(','))
             image = image.crop(x, y, w, h)
 
-        if size != 'full':
+        if size != 'max':
             image_width = image.width
             image_height = image.height
             w, h = (float(v) if v != '' else v for v in size.split(','))
