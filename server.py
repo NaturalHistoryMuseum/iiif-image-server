@@ -69,7 +69,7 @@ def image_info(image_name):
         'protocol': 'http://iiif.io/api/image',
         'width': width,
         'height': height,
-        'rights': 'https://creativecommons.org/publicdomain/zero/1.0/',
+        'rights': 'http://creativecommons.org/licenses/by/4.0/',
         'profile': 'level0',
     })
 
