@@ -22,11 +22,11 @@ setup(
     url="https://github.com/NaturalHistoryMuseum/iiif-image-server/",
     packages=find_packages(),
     install_requires=[
-        'flask~=1.1.1',
-        'Flask_Cors~=3.0.8',
-        'pyyaml~=5.3.1',
-        'uWSGI~=2.0.18',
         f'jpegtran-cffi @ {jpegtran_url}',
+        'lru-dict~=1.1.6',
+        'pillow~=7.0.0',
+        'pyyaml~=5.3.1',
+        'tornado~=6.0.4',
     ],
     dependency_links=[
         jpegtran_url,
