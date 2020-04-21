@@ -212,8 +212,6 @@ class ImageProcessingDispatcher:
         :param task: the task object
         :return: a tornado Event object to await on
         """
-        print(f'Requested: {task.cached_path}, current status: {[(w.queue_size, w.is_warm_for(task)) for w in self.workers]}')
-
         if task.cached_path in self.cached_paths:
             # this task has either already been completed prior to this request or is currently
             # being processed, just return the Event object associated with it
