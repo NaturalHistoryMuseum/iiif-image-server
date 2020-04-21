@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+from collections import defaultdict
 
 import multiprocessing as mp
 import os
@@ -234,26 +235,31 @@ class ImageProcessingDispatcher:
 
     def choose_worker(self, task):
         """
-        Select a worker for the given task.
+        Select a worker for the given task. Workers are chosen by giving them a score and then
+        randomly choosing the worker from the group with highest score.
 
-        Workers which will have the source image loaded into their image caches are prioritised. If
-        no worker is found that meets this criteria.
+        Workers which will have the source image loaded into their image caches are prioritised as
+        are workers with a queue size shorter than the number of workers (for lack of a better value
+        to be less than).
 
-        :param task:
-        :return:
+        :param task: the task
+        :return: a Worker object
         """
-        # select a random worker to start with
-        selected_worker = random.choice(self.workers)
+        buckets = defaultdict(list)
         for worker in self.workers:
-            # TODO: take queue size into consideration rather than just choosing the first warm one
-            # if we find a warm worker, choose them
+            # higher is better
+            score = 0
+            # you get a point if your queue is smaller than the current number of workers
+            if worker.queue_size <= len(self.workers):
+                score += 1
+            # you get a point if you are warmed up for the task
             if worker.is_warm_for(task):
-                return worker
-            # if this worker isn't warm, compare it's queue size so that if no workers are warm we
-            # send the task to the worker with the smallest queue
-            if selected_worker.queue_size < worker.queue_size:
-                selected_worker = worker
-        return selected_worker
+                score += 1
+            # add the worker to the appropriate bucket
+            buckets[score].append(worker)
+
+        # choose the bucket with the highest score and pick a worker at random from it
+        return random.choice(buckets[max(buckets.keys())])
 
     def finish_task(self, task):
         """
