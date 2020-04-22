@@ -264,9 +264,7 @@ class ImageProcessingDispatcher:
             buckets[score].append(worker)
 
         # choose the bucket with the highest score and pick a worker at random from it
-        sel = random.choice(buckets[max(buckets.keys())])
-        print(f'Picked {sel.worker_id} [{sel.queue_size}] for {task.output_path}')
-        return sel
+        return random.choice(buckets[max(buckets.keys())])
 
     def finish_task(self, worker_id, task):
         """
