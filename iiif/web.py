@@ -141,6 +141,9 @@ class ImageInfoHandler(RequestHandler):
                     {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
                 ],
                 'sizes': self.generate_sizes(width, height, self.config['min_sizes_size']),
+                # suggest to clients that upscaling isn't supported
+                'maxWidth': width,
+                'maxHeight': height,
             }
 
         # serve up the info.json (tornado automatically writes a dict out as JSON with headers etc)
