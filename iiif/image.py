@@ -17,7 +17,7 @@ class ImageSourceSizer:
         :param config: the config
         """
         # initialise a process pool to run the image dimension extraction function in
-        self.pool = ProcessPoolExecutor(max_workers=config['info_pool_size'])
+        self.pool = ProcessPoolExecutor(max_workers=config['size_pool_size'])
 
     @staticmethod
     def _get_image_size(image):
