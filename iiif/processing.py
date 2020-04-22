@@ -251,6 +251,9 @@ class ImageProcessingDispatcher:
             if worker.queue_size <= len(self.workers):
                 # you get a point if your queue is smaller than the current number of workers
                 score += 1
+                if worker.queue_size == 0:
+                    # and an extra point if you have no tasks on your queue
+                    score += 1
 
             if worker.is_warm_for(task):
                 # you get a point if you are warmed up for the task
