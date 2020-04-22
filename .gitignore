@@ -5,3 +5,4 @@ config.yml
 venv
 image_cache
 uwsgi.ini
+__pycache__
