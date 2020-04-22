@@ -13,7 +13,7 @@ from tornado.ioloop import IOLoop
 from tornado.locks import Event
 
 
-def process_image_request(task_queue, result_queue, cache_size):
+def process_image_request(worker_id, task_queue, result_queue, cache_size):
     """
     Processes a given task queue, putting tasks on the given results queue once complete. This
     function is blocking and should be run in a separate process.
@@ -24,6 +24,7 @@ def process_image_request(task_queue, result_queue, cache_size):
     efficient for us to load the file once and reuse the JPEGImage object over and over again, hence
     the LRU image cache.
 
+    :param worker_id: the worker id associated with this process
     :param task_queue: a multiprocessing Queue of Task objects
     :param result_queue: a multiprocessing Queue to put the completed Task objects on
     :param cache_size: the size to use for the LRU cache for loaded source images
@@ -63,8 +64,9 @@ def process_image_request(task_queue, result_queue, cache_size):
             with open(task.output_path, 'wb') as f:
                 f.write(image.as_blob())
 
-            # put the task on the result queue to indicate to the main process that it's done
-            result_queue.put(task)
+            # put our worker id and the task on the result queue to indicate to the main process
+            # that it's done
+            result_queue.put((worker_id, task))
     except KeyboardInterrupt:
         pass
 
@@ -86,8 +88,9 @@ class Worker:
         # create a multiprocessing Queue for just this worker's tasks
         self.task_queue = mp.Queue()
         # create the process
-        self.process = Process(target=process_image_request, args=(self.task_queue, result_queue,
-                                                                   cache_size))
+        self.process = Process(target=process_image_request, args=(worker_id, self.task_queue,
+                                                                   result_queue, cache_size))
+        self.queue_size = 0
         # this LRU cache holds the source file paths that should be in the process's image cache at
         # the time the last task on the task queue is processed and therefore allows us to use it as
         # a heuristic when determining which worker to assign a task (we want to hit the image cache
@@ -95,27 +98,25 @@ class Worker:
         self.predicted_cache = LRU(cache_size)
         self.process.start()
 
-    @property
-    def queue_size(self):
-        """
-        Returns the current size of this worker's task queue. This value is an approximation due
-        to multithreading/multiprocessing semantics and therefore this number is not completely
-        reliable. Should be good enough for what we're doing though.
-
-        :return: the size of the task queue as an integer
-        """
-        return self.task_queue.qsize()
-
     def add(self, task):
         """
         Adds the given task to this worker's task queue.
 
         :param task: the Task object
         """
+        self.queue_size += 1
         self.predicted_cache[task.image.source_path] = True
         # this will almost always be instantaneous but does have the chance to block up the entire
         # asyncio thread
         self.task_queue.put(task)
+
+    def done(self, task):
+        """
+        Call this to notify this worker that it completed the given task.
+
+        :param task: the task that was completed
+        """
+        self.queue_size -= 1
 
     def stop(self):
         """
@@ -166,8 +167,8 @@ class ImageProcessingDispatcher:
         # keep a reference to the correct tornado io loop so that we can correctly call task
         # completion callbacks from the result thread
         self.loop = IOLoop.current()
-        # a list of the Worker objects we're dispatching the requests to
-        self.workers = []
+        # a dict of the Worker objects we're dispatching the requests to keyed by their worker ids
+        self.workers = {}
         # a register of the processed image paths and tornado Event objects indicating whether they
         # have been processed yet, we deliberately don't pre-populate this in case the cache
         # directory is large and leave it to be lazily built as requests come in (see submit method)
@@ -184,8 +185,8 @@ class ImageProcessingDispatcher:
         listens for results to be put on the result queue by workers and adds a callback into the
         main ayncio loop to notify all waiting coroutines.
         """
-        for task in iter(self.result_queue.get, None):
-            self.loop.add_callback(self.finish_task, task)
+        for result in iter(self.result_queue.get, None):
+            self.loop.add_callback(self.finish_task, *result)
 
     def init_workers(self, worker_count, worker_cache_size):
         """
@@ -195,7 +196,7 @@ class ImageProcessingDispatcher:
         :param worker_cache_size: the size of each worker's image cache
         """
         for i in range(worker_count):
-            self.workers.append(Worker(i, self.result_queue, worker_cache_size))
+            self.workers[i] = Worker(i, self.result_queue, worker_cache_size)
 
     def submit(self, task):
         """
@@ -244,7 +245,7 @@ class ImageProcessingDispatcher:
         :return: a Worker object
         """
         buckets = defaultdict(list)
-        for worker in self.workers:
+        for worker in self.workers.values():
             # higher is better
             score = 0
 
@@ -267,22 +268,23 @@ class ImageProcessingDispatcher:
         print(f'Picked {sel.worker_id} [{sel.queue_size}] for {task.output_path}')
         return sel
 
-    def finish_task(self, task):
+    def finish_task(self, worker_id, task):
         """
         Called by the result thread to signal that a task has finished processing. This function
         simply sets the Event object associated with the task's output path.
 
+        :param worker_id: the id of the worker that completed the task
         :param task: the task object that is complete
         """
+        self.workers[worker_id].done(task)
         self.output_paths[task.output_path].set()
-        print(f'finished task {task.output_path}, worker statuses: {[w.queue_size for w in self.workers]}')
 
     def stop(self):
         """
         Signals all worker processes to stop. This function will block until all workers have
         finished processing their queues.
         """
-        for worker in self.workers:
+        for worker in self.workers.values():
             worker.stop()
         self.result_queue.put(None)
         self.result_thread.join()
