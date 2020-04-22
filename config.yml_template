@@ -3,15 +3,15 @@ base_url: http://10.11.20.12/iiif_images
 # the port to listen for requests on
 http_port: 4040
 # the full path to the directory where derivative images should be cached
-cache_dir: /usr/lib/iiif_image_server/cache
+cache_path: /usr/lib/iiif_image_server/cache
 # the full path to the directory where the source images are found
-source_dir: /usr/lib/iiif_image_server/images
+source_path: /usr/lib/iiif_image_server/source
 # the minimum size to return in the info.json's sizes property (see IIIF spec for more details). No
 # values in the sizes array will be smaller than this value
 min_sizes_size: 200
-# the number of processes in the info process pool, this pool is used to find the dimensions of
+# the number of processes in the size process pool, this pool is used to find the dimensions of
 # source image files during info.json generation
-info_pool_size: 2
+size_pool_size: 2
 # the number of processes in the derivative processing pool, these processes are used to generate
 # the tiles etc from the source images
 image_pool_size: 4
