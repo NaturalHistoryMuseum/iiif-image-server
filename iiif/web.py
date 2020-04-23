@@ -8,13 +8,27 @@ from functools import lru_cache
 from itertools import count
 from lru import LRU
 from tornado.ioloop import IOLoop
-from tornado.web import Application, RequestHandler, HTTPError
+from tornado.web import Application, RequestHandler
 
 from iiif.image import ImageSourceFetcher, ImageSourceSizer, IIIFImage
 from iiif.processing import ImageProcessingDispatcher, Task
 
 
-class ImageDataHandler(RequestHandler):
+class CORSMixin:
+    """
+    Little mixin class that handles CORS concerns.
+    """
+
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+
+    def options(self, *args, **kwargs):
+        self.set_status(204)
+        self.finish()
+
+
+class ImageDataHandler(CORSMixin, RequestHandler):
     """
     Request handler for image data requests.
     """
@@ -61,7 +75,7 @@ class ImageDataHandler(RequestHandler):
         await self.finish()
 
 
-class ImageInfoHandler(RequestHandler):
+class ImageInfoHandler(CORSMixin, RequestHandler):
     """
     Request handler for info.json requests.
     """
