@@ -1,14 +1,9 @@
-from contextlib import contextmanager
-
-import asyncio
-
 import os
+import pytest
 from PIL import Image
 from tornado.concurrent import Future
-from unittest.mock import MagicMock, patch, AsyncMock
-
-import pytest
 from tornado.web import HTTPError
+from unittest.mock import MagicMock, patch, AsyncMock
 
 from iiif.image import IIIFImage, ImageSourceFetcher, ImageSourceSizer
 
