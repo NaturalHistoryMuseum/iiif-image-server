@@ -1,13 +1,16 @@
+from contextlib import contextmanager
+
 import asyncio
 
 import os
+from PIL import Image
 from tornado.concurrent import Future
 from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 from tornado.web import HTTPError
 
-from iiif.image import IIIFImage, ImageSourceFetcher
+from iiif.image import IIIFImage, ImageSourceFetcher, ImageSourceSizer
 
 
 class TestIIIFImage:
@@ -174,3 +177,30 @@ class TestImageSourceFetcher:
         assert e.value.status_code == 500
         assert e.value.reason == 'Identifier type not supported'
         assert fetcher.images[image.identifier].exception() == e.value
+
+
+class TestImageSourceSizer:
+
+    @pytest.fixture
+    def sizer(self):
+        sizer = ImageSourceSizer(dict(size_pool_size=1))
+        yield sizer
+        sizer.stop()
+
+    @pytest.mark.asyncio
+    async def test_get_image_size(self, tmp_path, sizer):
+        image = IIIFImage('vfactor:image', tmp_path / 'source', tmp_path / 'cache')
+
+        os.makedirs(os.path.dirname(image.source_path), exist_ok=True)
+        # create a test image
+        size = (60, 30)
+        Image.new('RGB', size, color='red').save(image.source_path, format='jpeg')
+
+        assert await sizer.get_image_size(image) == size
+
+    @pytest.mark.asyncio
+    async def test_get_image_size_error(self, tmp_path, sizer):
+        image = IIIFImage('vfactor:image', tmp_path / 'source', tmp_path / 'cache')
+
+        with pytest.raises(FileNotFoundError):
+            await sizer.get_image_size(image)
