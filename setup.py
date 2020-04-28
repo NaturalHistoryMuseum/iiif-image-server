@@ -6,7 +6,6 @@ from setuptools import setup, find_packages
 with open("README.md", "r") as readme_file:
     readme = readme_file.read()
 
-
 # at the time of writing, the latest version of this lib on pypi (0.5.2) doesn't install correctly,
 # whereas the latest commit on master does, hence we'll just install directly from github
 jpegtran_url = 'git+https://github.com/jbaiter/jpegtran-cffi.git@70928eb#egg=jpegtran-cffi'
@@ -30,6 +29,9 @@ setup(
     ],
     dependency_links=[
         jpegtran_url,
+    ],
+    tests_require=[
+        'pytest',
     ],
     classifiers=[
         "Programming Language :: Python :: 3.8",

@@ -142,7 +142,7 @@ class IIIFImage:
         self.type, self.name = identifier.split(':', 1)
 
         if self.type not in ImageSourceFetcher.supported_types:
-            raise HTTPError(status_code=404, reason="Identifier type not found")
+            raise HTTPError(status_code=404, reason="Identifier type not supported")
 
         self.source_path = os.path.join(root_source_path, self.type, self.name)
         self.cache_path = os.path.join(root_cache_path, self.type, self.name)
