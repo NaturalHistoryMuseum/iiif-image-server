@@ -61,6 +61,8 @@ class ImageSourceFetcher:
 
     # these are the types of image source we currently support
     supported_types = {'vfactor', 'mam'}
+    # the mam preview base url
+    mam_url = 'https://www.nhm.ac.uk/services/media-store/asset/{}/contents/preview'
 
     def __init__(self, config):
         """
@@ -84,23 +86,29 @@ class ImageSourceFetcher:
             # the source file has either already been retrieved or is currently being retrieved,
             # await the original request's result
             await self.images[image.identifier]
+            # get outta here, we're done!
+            return
 
         # we represent that state of the source file as a future, it will be resolved once we either
         # have the source file or couldn't get it and therefore need to raise an exception
         self.images[image.identifier] = Future()
+        exception = None
         if not os.path.exists(image.source_path):
             if image.type == 'mam':
-                await self._fetch_mam_image(image)
+                exception = await self._fetch_mam_image(image)
             elif image.type == 'vfactor':
-                # if the vfactor image isn't on disk we have no way to retrieve so instant error!
-                exception = HTTPError(status_code=404, reason=f'VFactor image not found')
-                self.images[image.identifier].set_exception(exception)
-                raise exception
+                # if the vfactor image isn't on disk we have no way to retrieve so error
+                exception = HTTPError(status_code=404, reason='VFactor image not found')
             else:
-                raise HTTPError(status_code=500, reason="Identifier type could not be retrieved")
+                # we don't recognise this identifier type so error
+                exception = HTTPError(status_code=500, reason='Identifier type not supported')
 
-        # complete the future as the source file should be on disk now
-        self.images[image.identifier].set_result(None)
+        if exception is not None:
+            self.images[image.identifier].set_exception(exception)
+            raise exception
+        else:
+            # complete the future as the source file should be on disk now
+            self.images[image.identifier].set_result(None)
 
     async def _fetch_mam_image(self, image):
         """
@@ -111,13 +119,9 @@ class ImageSourceFetcher:
         :param image: the Image object
         """
         http_client = AsyncHTTPClient()
-        response = await http_client.fetch(f'https://www.nhm.ac.uk/services/media-store/'
-                                           f'asset/{image.name}/contents/preview',
-                                           raise_error=False)
+        response = await http_client.fetch(self.mam_url.format(image.name), raise_error=False)
         if response.code != 200:
-            exception = HTTPError(status_code=404, reason=f'MAM image not found ({response.code})')
-            self.images[image.identifier].set_exception(exception)
-            raise exception
+            return HTTPError(status_code=404, reason=f'MAM image not found ({response.code})')
 
         os.makedirs(os.path.dirname(image.source_path), exist_ok=True)
         with open(os.path.join(image.source_path), 'wb') as f:

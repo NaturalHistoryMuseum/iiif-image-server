@@ -31,7 +31,8 @@ setup(
         jpegtran_url,
     ],
     tests_require=[
-        'pytest',
+        'pytest~=5.4.1',
+        'pytest-asyncio~=0.11.0',
     ],
     classifiers=[
         "Programming Language :: Python :: 3.8",
