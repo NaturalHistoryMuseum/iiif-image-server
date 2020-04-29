@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from collections import defaultdict
+import io
+from collections import defaultdict, namedtuple
 
 import multiprocessing as mp
 import os
 import random
+from PIL import Image
 from jpegtran import JPEGImage
 from lru import LRU
 from multiprocessing.context import Process
 from threading import Thread
 from tornado.ioloop import IOLoop
 from tornado.locks import Event
+
+
+Crop = namedtuple('Crop', ('x', 'y', 'width', 'height'))
 
 
 def process_image_request(worker_id, task_queue, result_queue, cache_size):
@@ -34,7 +39,6 @@ def process_image_request(worker_id, task_queue, result_queue, cache_size):
     # TODO: handle worker errors properly
     # TODO: jpegtran can't upscale, might want to prevent that from being asked for or use pillow
     #       for just those ops?
-    # TODO: jpegtran can't handle crops where x or y aren't multiple of 16, use pillow for these?
 
     try:
         # wait for tasks until we get a sentinel (in this case None)
@@ -52,15 +56,42 @@ def process_image_request(worker_id, task_queue, result_queue, cache_size):
                 crop = None
                 if task.region == 'square':
                     if width < height:
-                        # portrait
-                        crop = (0, int((height - width) / 2), width, width)
+                        # the image is portrait, crop out a centre square the size of the width
+                        crop = Crop(0, int((height - width) / 2), width, width)
                     elif width > height:
-                        # landscape
-                        crop = (int((width - height) / 2), 0, height, height)
+                        # the image is landscape, crop out a centre square the size of the height
+                        crop = Crop(int((width - height) / 2), 0, height, height)
                 else:
-                    crop = map(int, task.region.split(','))
+                    crop = Crop(*map(int, task.region.split(',')))
                 if crop is not None:
-                    image = image.crop(*crop)
+                    # jpegtran can't handle crops that don't have an origin divisible by 16
+                    # therefore we're going to do the crop in pillow, however, we're going to crop
+                    # down to the next lowest number below each of x and y that is divisible by 16
+                    # using jpegtran and then crop off the remaining pixels in pillow to get to the
+                    # desired size. This is all for performance, jpegtran is so much quicker than
+                    # pillow hence it's worth this hassle
+                    if crop.x % 16 or crop.y % 16:
+                        # work out how far we need to shift the x and y to get to the next lowest
+                        # numbers divisible by 16
+                        x_shift = crop.x % 16
+                        y_shift = crop.y % 16
+                        # crop the image using the shifted x and y and the shifted width and height
+                        image = image.crop(crop.x - x_shift, crop.y - y_shift, crop.width + x_shift,
+                                           crop.height + y_shift)
+                        # convert jpegtran image object to a pillow image object
+                        pillow_image = Image.open(io.BytesIO(image.as_blob()))
+                        # do the final crop to get us the desired size
+                        pillow_image = pillow_image.crop((x_shift, y_shift, x_shift + crop.width,
+                                                          y_shift + crop.height))
+                        # write the image to memory
+                        output = io.BytesIO()
+                        pillow_image.save(output, format='jpeg')
+                        output.seek(0)
+                        # create a new jpegtran image
+                        image = JPEGImage(blob=output.read())
+                    else:
+                        # if the crop has an origin divisible by 16 then we can just use jpegtran
+                        image = image.crop(*crop)
 
             if task.size != 'max':
                 w, h = (float(v) if v != '' else v for v in task.size.split(','))

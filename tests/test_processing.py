@@ -83,7 +83,7 @@ class TestProcessImageRequestLevel1:
     See: https://iiif.io/api/image/3.0/compliance/.
     """
 
-    def test_regionByPx(self, image, task_queue, result_queue):
+    def test_regionByPx_jpegtran(self, image, task_queue, result_queue):
         x, y, w, h = 0, 0, 1024, 1024
         task = Task(image, f'{x},{y},{w},{h}', 'max')
         task_queue.put(task)
@@ -95,6 +95,20 @@ class TestProcessImageRequestLevel1:
         assert result_queue.get() == (0, task)
         assert os.path.exists(task.output_path)
         check_size(task, 1024, 1024)
+        check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
+
+    def test_regionByPx_any(self, image, task_queue, result_queue):
+        x, y, w, h = 6, 191, 1002, 1053
+        task = Task(image, f'{x},{y},{w},{h}', 'max')
+        task_queue.put(task)
+        task_queue.put(None)
+
+        process_image_request(0, task_queue, result_queue, 1)
+
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, 1002, 1053)
         check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
 
     def test_regionSquare_a_square(self, tmp_path, task_queue, result_queue):
@@ -135,6 +149,32 @@ class TestProcessImageRequestLevel1:
         assert os.path.exists(task.output_path)
         check_size(task, height, height)
         check_result(task, lambda img: img.crop((128, 0, 640, 512)))
+
+    def test_regionSquare_a_portrait_any(self, tmp_path, task_queue, result_queue):
+        width = 500
+        height = 700
+        task = Task(create_image(tmp_path, width, height), 'square', 'max')
+        task_queue.put(task)
+        task_queue.put(None)
+        process_image_request(0, task_queue, result_queue, 1)
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, width, width)
+        check_result(task, lambda img: img.crop((0, 100, 500, 600)))
+
+    def test_regionSquare_a_landscape_any(self, tmp_path, task_queue, result_queue):
+        width = 700
+        height = 500
+        task = Task(create_image(tmp_path, width, height), 'square', 'max')
+        task_queue.put(task)
+        task_queue.put(None)
+        process_image_request(0, task_queue, result_queue, 1)
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, height, height)
+        check_result(task, lambda img: img.crop((100, 0, 600, 500)))
 
     def test_sizeByW(self, image, task_queue, result_queue):
         width = 512
