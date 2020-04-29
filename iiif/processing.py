@@ -11,6 +11,7 @@ from jpegtran import JPEGImage
 from lru import LRU
 from multiprocessing.context import Process
 from threading import Thread
+from tornado.concurrent import Future
 from tornado.ioloop import IOLoop
 from tornado.locks import Event
 from tornado.web import HTTPError
@@ -121,9 +122,9 @@ def process_image_requests(worker_id, task_queue, result_queue, cache_size):
 
     # TODO: handle worker errors properly
 
-    try:
-        # wait for tasks until we get a sentinel (in this case None)
-        for task in iter(task_queue.get, None):
+    # wait for tasks until we get a sentinel (in this case None)
+    for task in iter(task_queue.get, None):
+        try:
             if task.image.name not in image_cache:
                 # the JPEGImage init function reads the entire source file into memory
                 image_cache[task.image.name] = JPEGImage(task.image.source_path)
@@ -139,11 +140,15 @@ def process_image_requests(worker_id, task_queue, result_queue, cache_size):
             with open(task.output_path, 'wb') as f:
                 f.write(image.as_blob())
 
-            # put our worker id and the task on the result queue to indicate to the main process
-            # that it's done
-            result_queue.put((worker_id, task))
-    except KeyboardInterrupt:
-        pass
+            # put our worker id, the task and None on the result queue to indicate to the main
+            # process that it's done and we encountered no exceptions
+            result_queue.put((worker_id, task, None))
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            # put our worker id, the task and the exception on the result queue to indicate to the
+            # main process that it's done and we encountered an exception
+            result_queue.put((worker_id, task, e))
 
 
 class Worker:
@@ -273,39 +278,33 @@ class ImageProcessingDispatcher:
         for i in range(worker_count):
             self.workers[i] = Worker(i, self.result_queue, worker_cache_size)
 
-    def submit(self, task):
+    async def submit(self, task):
         """
-        Processes the given task on one of our worker processes. If the task has already been
-        completed (this is determined by the existence of the task's output path) then the task will
-        not be reprocessed. Tornado Event objects are used to determine if a task has been completed
-        or not and should be awaited on. If the task has already been completed a switched on Event
-        object will be returned by this function which will immediately return when awaited. If a
-        running task is requested again whilst it is being processed, the same Event object will be
-        returned by this function for the processing request and the new requests. This results in
-        all tasks resolving at the same time upon the first task's completion.
+        Submits the given task to be processed on one of our worker processes. If the task has
+        already been completed (this is determined by the existence of the task's output path) then
+        the task will not be reprocessed. Tornado Future objects are used to determine if a task has
+        been completed or not. If the task has already been completed, this function will return
+        immeiately when awaited. If a task is requested again whilst it is already being processed,
+        the Future object created for the in progress task will be awaited on by this function for
+        the new processing request. This results in all tasks resolving at the same time upon the
+        first task's completion.
 
         :param task: the task object
-        :return: a tornado Event object to await on
         """
-        if task.output_path in self.output_paths:
-            # this task has either already been completed prior to this request or is currently
-            # being processed, just return the Event object associated with it
-            return self.output_paths[task.output_path]
+        if task.output_path not in self.output_paths:
+            # we haven't processed this task before, create a Future and add it to the output_paths
+            processed_future = Future()
+            self.output_paths[task.output_path] = processed_future
+            if os.path.exists(task.output_path):
+                # if the path exists the task was created before this server started up, set the
+                # result to indicate the task is complete
+                processed_future.set_result(None)
+            else:
+                # otherwise, choose a worker and add it to it
+                worker = self.choose_worker(task)
+                worker.add(task)
 
-        # we haven't processed this task before, create an event and add it to the output_paths
-        processed_event = Event()
-        self.output_paths[task.output_path] = processed_event
-        if os.path.exists(task.output_path):
-            # if the path exists the task was created before this server started up, set it to
-            # indicate the task is complete
-            processed_event.set()
-        else:
-            # otherwise, choose a worker and add it to it
-            worker = self.choose_worker(task)
-            worker.add(task)
-
-        # return the Event object
-        return processed_event
+        await self.output_paths[task.output_path]
 
     def choose_worker(self, task):
         """
@@ -341,16 +340,21 @@ class ImageProcessingDispatcher:
         # choose the bucket with the highest score and pick a worker at random from it
         return random.choice(buckets[max(buckets.keys())])
 
-    def finish_task(self, worker_id, task):
+    def finish_task(self, worker_id, task, exception):
         """
         Called by the result thread to signal that a task has finished processing. This function
         simply sets the Event object associated with the task's output path.
 
         :param worker_id: the id of the worker that completed the task
         :param task: the task object that is complete
+        :param exception: an exception that occurred during processing, if no exception was
+                          encountered this will be None
         """
         self.workers[worker_id].done(task)
-        self.output_paths[task.output_path].set()
+        if exception is None:
+            self.output_paths[task.output_path].set_result(None)
+        else:
+            self.output_paths[task.output_path].set_exception(exception)
 
     def stop(self):
         """

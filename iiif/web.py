@@ -60,7 +60,7 @@ class ImageDataHandler(CORSMixin, RequestHandler):
 
         task = Task(image, region, size)
         # submit the task to the dispatcher and wait for it to complete
-        await self.dispatcher.submit(task).wait()
+        await self.dispatcher.submit(task)
 
         self.set_header("Content-type", "image/jpeg")
         with open(task.output_path, 'rb') as f:
