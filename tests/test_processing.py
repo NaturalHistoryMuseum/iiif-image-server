@@ -4,6 +4,7 @@ import os
 import pytest
 from PIL import Image
 from queue import Queue
+from tornado.web import HTTPError
 
 from iiif.image import IIIFImage
 from iiif.processing import Task, process_image_requests
@@ -71,7 +72,7 @@ class TestProcessImageRequestsLevel0:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, default_image_width, default_image_height)
         check_result(task, lambda img: img)
@@ -92,7 +93,7 @@ class TestProcessImageRequestsLevel1:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, 1024, 1024)
         check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
@@ -106,7 +107,7 @@ class TestProcessImageRequestsLevel1:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, 1002, 1053)
         check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
@@ -119,7 +120,7 @@ class TestProcessImageRequestsLevel1:
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, width, height)
         check_result(task, lambda img: img)
@@ -132,7 +133,7 @@ class TestProcessImageRequestsLevel1:
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, width, width)
         check_result(task, lambda img: img.crop((0, 128, 512, 640)))
@@ -145,7 +146,7 @@ class TestProcessImageRequestsLevel1:
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, height, height)
         check_result(task, lambda img: img.crop((128, 0, 640, 512)))
@@ -158,7 +159,7 @@ class TestProcessImageRequestsLevel1:
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, width, width)
         check_result(task, lambda img: img.crop((0, 100, 500, 600)))
@@ -171,7 +172,7 @@ class TestProcessImageRequestsLevel1:
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, height, height)
         check_result(task, lambda img: img.crop((100, 0, 600, 500)))
@@ -186,7 +187,7 @@ class TestProcessImageRequestsLevel1:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, width, expected_height)
         check_result(task, lambda img: img.resize((width, expected_height)))
@@ -201,7 +202,7 @@ class TestProcessImageRequestsLevel1:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, expected_width, height)
         check_result(task, lambda img: img.resize((expected_width, height)))
@@ -216,7 +217,7 @@ class TestProcessImageRequestsLevel1:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, width, height)
         check_result(task, lambda img: img.resize((width, height)))
@@ -233,7 +234,7 @@ class TestProcessImageRequestsMisc:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, 256, 401)
         check_result(task, lambda img: img.crop((100, 200, 600, 891)).resize((256, 401)))
@@ -250,7 +251,22 @@ class TestProcessImageRequestsMisc:
         process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
-        assert result_queue.get() == (0, task)
+        assert result_queue.get() == (0, task, None)
         assert os.path.exists(task.output_path)
         check_size(task, 400, 400)
         check_result(task, lambda img: img.crop((0, 100, 500, 600)).resize((400, 400)))
+
+    def test_upscale_errors_when_not_specified(self, image, task_queue, result_queue):
+        task = Task(image, '0,0,400,400', '500,500')
+        task_queue.put(task)
+        task_queue.put(None)
+
+        process_image_requests(0, task_queue, result_queue, 1)
+
+        assert result_queue.qsize() == 1
+        worker_id, result_task, exception = result_queue.get()
+        assert worker_id == 0
+        assert result_task == task
+        assert isinstance(exception, HTTPError)
+        assert exception.status_code == 400
+        assert exception.reason == 'Size greater than extracted region without specifying^'
