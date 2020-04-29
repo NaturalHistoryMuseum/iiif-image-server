@@ -125,33 +125,37 @@ def process_image_requests(worker_id, task_queue, result_queue, cache_size):
 
     # TODO: handle worker errors properly
 
-    # wait for tasks until we get a sentinel (in this case None)
-    for task in iter(task_queue.get, None):
-        try:
-            if task.image.name not in image_cache:
-                # the JPEGImage init function reads the entire source file into memory
-                image_cache[task.image.name] = JPEGImage(task.image.source_path)
+    try:
+        # wait for tasks until we get a sentinel (in this case None)
+        for task in iter(task_queue.get, None):
+            try:
+                if task.image.name not in image_cache:
+                    # the JPEGImage init function reads the entire source file into memory
+                    image_cache[task.image.name] = JPEGImage(task.image.source_path)
 
-            image = image_cache[task.image.name]
+                image = image_cache[task.image.name]
 
-            image = process_region(image, task.region)
-            image = process_size(image, task.size)
+                image = process_region(image, task.region)
+                image = process_size(image, task.size)
 
-            # ensure the full cache path exists
-            os.makedirs(os.path.dirname(task.output_path), exist_ok=True)
-            # write the processed image to disk
-            with open(task.output_path, 'wb') as f:
-                f.write(image.as_blob())
+                # ensure the full cache path exists
+                os.makedirs(os.path.dirname(task.output_path), exist_ok=True)
+                # write the processed image to disk
+                with open(task.output_path, 'wb') as f:
+                    f.write(image.as_blob())
 
-            # put our worker id, the task and None on the result queue to indicate to the main
-            # process that it's done and we encountered no exceptions
-            result_queue.put((worker_id, task, None))
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            # put our worker id, the task and the exception on the result queue to indicate to the
-            # main process that it's done and we encountered an exception
-            result_queue.put((worker_id, task, e))
+                # put our worker id, the task and None on the result queue to indicate to the main
+                # process that it's done and we encountered no exceptions
+                result_queue.put((worker_id, task, None))
+            except Exception as e:
+                # if we get a keyboard interrupt we need to stop!
+                if isinstance(e, KeyboardInterrupt):
+                    raise e
+                # put our worker id, the task and the exception on the result queue to indicate to
+                # the main process that it's done and we encountered an exception
+                result_queue.put((worker_id, task, e))
+    except KeyboardInterrupt:
+        pass
 
 
 class Worker:
