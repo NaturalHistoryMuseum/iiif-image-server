@@ -148,7 +148,7 @@ class ImageInfoHandler(CORSMixin, RequestHandler):
                 'width': width,
                 'height': height,
                 'rights': 'http://creativecommons.org/licenses/by/4.0/',
-                'profile': 'level0',
+                'profile': 'level1',
                 'tiles': [
                     {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
                     {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
