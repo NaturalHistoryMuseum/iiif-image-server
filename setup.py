@@ -23,7 +23,7 @@ setup(
     install_requires=[
         f'jpegtran-cffi @ {jpegtran_url}',
         'lru-dict~=1.1.6',
-        'pillow~=7.0.0',
+        'pillow~=7.1.2',
         'pyyaml~=5.3.1',
         'tornado~=6.0.4',
     ],
