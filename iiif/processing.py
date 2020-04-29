@@ -44,19 +44,30 @@ def process_image_request(worker_id, task_queue, result_queue, cache_size):
                 image_cache[task.image.name] = JPEGImage(task.image.source_path)
 
             image = image_cache[task.image.name]
+            # cache the image size
+            width = image.width
+            height = image.height
 
             if task.region != 'full':
-                x, y, w, h = map(int, task.region.split(','))
-                image = image.crop(x, y, w, h)
+                crop = None
+                if task.region == 'square':
+                    if width < height:
+                        # portrait
+                        crop = (0, int((height - width) / 2), width, width)
+                    elif width > height:
+                        # landscape
+                        crop = (int((width - height) / 2), 0, height, height)
+                else:
+                    crop = map(int, task.region.split(','))
+                if crop is not None:
+                    image = image.crop(*crop)
 
             if task.size != 'max':
-                image_width = image.width
-                image_height = image.height
                 w, h = (float(v) if v != '' else v for v in task.size.split(','))
                 if h == '':
-                    h = image_height * w / image_width
+                    h = height * w / width
                 elif w == '':
-                    w = image_width * h / image_height
+                    w = width * h / height
                 image = image.downscale(int(w), int(h))
 
             # ensure the full cache path exists

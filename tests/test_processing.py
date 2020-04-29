@@ -12,13 +12,17 @@ default_image_width = 4000
 default_image_height = 5000
 
 
-@pytest.fixture
-def image(tmp_path):
+def create_image(tmp_path, width, height):
     image = IIIFImage('vfactor:image', tmp_path / 'source', tmp_path / 'cache')
     os.makedirs(os.path.dirname(image.source_path), exist_ok=True)
-    img = Image.new('RGB', (default_image_width, default_image_height), color='red')
+    img = Image.new('RGB', (width, height), color='red')
     img.save(image.source_path, format='jpeg')
     return image
+
+
+@pytest.fixture
+def image(tmp_path):
+    return create_image(tmp_path, default_image_width, default_image_height)
 
 
 @pytest.fixture
@@ -93,10 +97,44 @@ class TestProcessImageRequestLevel1:
         check_size(task, 1024, 1024)
         check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
 
-    @pytest.mark.skip
-    def test_regionSquare(self):
-        # needs to be implemented for full level 1 compliance
-        pass
+    def test_regionSquare_a_square(self, tmp_path, task_queue, result_queue):
+        width = 500
+        height = 500
+        task = Task(create_image(tmp_path, width, height), 'square', 'max')
+        task_queue.put(task)
+        task_queue.put(None)
+        process_image_request(0, task_queue, result_queue, 1)
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, width, height)
+        check_result(task, lambda img: img)
+
+    def test_regionSquare_a_portrait_jpegtran(self, tmp_path, task_queue, result_queue):
+        width = 512
+        height = 768
+        task = Task(create_image(tmp_path, width, height), 'square', 'max')
+        task_queue.put(task)
+        task_queue.put(None)
+        process_image_request(0, task_queue, result_queue, 1)
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, width, width)
+        check_result(task, lambda img: img.crop((0, 128, 512, 640)))
+
+    def test_regionSquare_a_landscape_jpegtran(self, tmp_path, task_queue, result_queue):
+        width = 768
+        height = 512
+        task = Task(create_image(tmp_path, width, height), 'square', 'max')
+        task_queue.put(task)
+        task_queue.put(None)
+        process_image_request(0, task_queue, result_queue, 1)
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, height, height)
+        check_result(task, lambda img: img.crop((128, 0, 640, 512)))
 
     def test_sizeByW(self, image, task_queue, result_queue):
         width = 512
