@@ -13,7 +13,6 @@ from multiprocessing.context import Process
 from threading import Thread
 from tornado.concurrent import Future
 from tornado.ioloop import IOLoop
-from tornado.locks import Event
 from tornado.web import HTTPError
 
 Crop = namedtuple('Crop', ('x', 'y', 'w', 'h'))
@@ -98,6 +97,10 @@ def process_size(image, size):
 
     w = int(w)
     h = int(h)
+
+    if width < w or height < h:
+        raise HTTPError(status_code=400, reason='Size greater than extracted region without '
+                                                'specifying^')
 
     return image.downscale(w, h)
 
