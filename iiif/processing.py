@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-import io
 from collections import defaultdict, namedtuple
 
+import io
 import multiprocessing as mp
 import os
 import random
@@ -14,11 +14,88 @@ from threading import Thread
 from tornado.ioloop import IOLoop
 from tornado.locks import Event
 
+Crop = namedtuple('Crop', ('x', 'y', 'w', 'h'))
 
-Crop = namedtuple('Crop', ('x', 'y', 'width', 'height'))
+
+def process_region(image, region, width, height):
+    """
+    Processes a IIIF region parameter which essentially involves cropping the image.
+
+    :param image: a jpegtran JPEGImage object
+    :param region: the IIIF region parameter
+    :param width: the width of the image
+    :param height: the height of the image
+    :return: a jpegtran JPEGImage object
+    """
+    if region == 'full':
+        # no crop required!
+        return image
+
+    if region == 'square':
+        if width < height:
+            # the image is portrait, we need to crop out a centre square the size of the width
+            crop = Crop(0, int((height - width) / 2), width, width)
+        elif width > height:
+            # the image is landscape, we need to crop out a centre square the size of the height
+            crop = Crop(int((width - height) / 2), 0, height, height)
+        else:
+            # the image is already square, return the whole thing
+            return image
+    else:
+        # the region parameter
+        crop = Crop(*map(int, region.split(',')))
+
+    # jpegtran can't handle crops that don't have an origin divisible by 16 therefore we're going to
+    # do the crop in pillow, however, we're going to crop down to the next lowest number below each
+    # of x and y that is divisible by 16 using jpegtran and then crop off the remaining pixels in
+    # pillow to get to the desired size. This is all for performance, jpegtran is so much quicker
+    # than pillow hence it's worth this hassle
+    if crop.x % 16 or crop.y % 16:
+        # work out how far we need to shift the x and y to get to the next lowest numbers divisible
+        # by 16
+        x_shift = crop.x % 16
+        y_shift = crop.y % 16
+        # crop the image using the shifted x and y and the shifted width and height
+        image = image.crop(crop.x - x_shift, crop.y - y_shift, crop.w + x_shift, crop.h + y_shift)
+        # convert the jpegtran image object to a pillow image object
+        pillow_image = Image.open(io.BytesIO(image.as_blob()))
+        # do the final crop to get us the desired size
+        pillow_image = pillow_image.crop((x_shift, y_shift, x_shift + crop.w, y_shift + crop.h))
+        # write the image to memory
+        output = io.BytesIO()
+        pillow_image.save(output, format='jpeg')
+        output.seek(0)
+        # read the image written out by pillow back in as a jpegtran JPEGImage object and return
+        return JPEGImage(blob=output.read())
+    else:
+        # if the crop has an origin divisible by 16 then we can just use jpegtran directly
+        return image.crop(*crop)
 
 
-def process_image_request(worker_id, task_queue, result_queue, cache_size):
+def process_size(image, size, width, height):
+    """
+    Processes a IIIF size parameter which essentially involves resizing the image.
+
+    :param image: a jpegtran JPEGImage object
+    :param size: the IIIF size parameter
+    :param width: the width of the image
+    :param height: the height of the image
+    :return: a jpegtran JPEGImage object
+    """
+    if size != 'max':
+        w, h = (float(v) if v != '' else v for v in size.split(','))
+        if h == '':
+            h = height * w / width
+        elif w == '':
+            w = width * h / height
+        # TODO: jpegtran can't upscale, might want to prevent that from being asked for or use
+        #       pillow for just those ops?
+        image = image.downscale(int(w), int(h))
+
+    return image
+
+
+def process_image_requests(worker_id, task_queue, result_queue, cache_size):
     """
     Processes a given task queue, putting tasks on the given results queue once complete. This
     function is blocking and should be run in a separate process.
@@ -37,8 +114,6 @@ def process_image_request(worker_id, task_queue, result_queue, cache_size):
     image_cache = LRU(cache_size)
 
     # TODO: handle worker errors properly
-    # TODO: jpegtran can't upscale, might want to prevent that from being asked for or use pillow
-    #       for just those ops?
 
     try:
         # wait for tasks until we get a sentinel (in this case None)
@@ -52,54 +127,8 @@ def process_image_request(worker_id, task_queue, result_queue, cache_size):
             width = image.width
             height = image.height
 
-            if task.region != 'full':
-                crop = None
-                if task.region == 'square':
-                    if width < height:
-                        # the image is portrait, crop out a centre square the size of the width
-                        crop = Crop(0, int((height - width) / 2), width, width)
-                    elif width > height:
-                        # the image is landscape, crop out a centre square the size of the height
-                        crop = Crop(int((width - height) / 2), 0, height, height)
-                else:
-                    crop = Crop(*map(int, task.region.split(',')))
-                if crop is not None:
-                    # jpegtran can't handle crops that don't have an origin divisible by 16
-                    # therefore we're going to do the crop in pillow, however, we're going to crop
-                    # down to the next lowest number below each of x and y that is divisible by 16
-                    # using jpegtran and then crop off the remaining pixels in pillow to get to the
-                    # desired size. This is all for performance, jpegtran is so much quicker than
-                    # pillow hence it's worth this hassle
-                    if crop.x % 16 or crop.y % 16:
-                        # work out how far we need to shift the x and y to get to the next lowest
-                        # numbers divisible by 16
-                        x_shift = crop.x % 16
-                        y_shift = crop.y % 16
-                        # crop the image using the shifted x and y and the shifted width and height
-                        image = image.crop(crop.x - x_shift, crop.y - y_shift, crop.width + x_shift,
-                                           crop.height + y_shift)
-                        # convert jpegtran image object to a pillow image object
-                        pillow_image = Image.open(io.BytesIO(image.as_blob()))
-                        # do the final crop to get us the desired size
-                        pillow_image = pillow_image.crop((x_shift, y_shift, x_shift + crop.width,
-                                                          y_shift + crop.height))
-                        # write the image to memory
-                        output = io.BytesIO()
-                        pillow_image.save(output, format='jpeg')
-                        output.seek(0)
-                        # create a new jpegtran image
-                        image = JPEGImage(blob=output.read())
-                    else:
-                        # if the crop has an origin divisible by 16 then we can just use jpegtran
-                        image = image.crop(*crop)
-
-            if task.size != 'max':
-                w, h = (float(v) if v != '' else v for v in task.size.split(','))
-                if h == '':
-                    h = height * w / width
-                elif w == '':
-                    w = width * h / height
-                image = image.downscale(int(w), int(h))
+            image = process_region(image, task.region, width, height)
+            image = process_size(image, task.size, width, height)
 
             # ensure the full cache path exists
             os.makedirs(os.path.dirname(task.output_path), exist_ok=True)
@@ -131,8 +160,8 @@ class Worker:
         # create a multiprocessing Queue for just this worker's tasks
         self.task_queue = mp.Queue()
         # create the process
-        self.process = Process(target=process_image_request, args=(worker_id, self.task_queue,
-                                                                   result_queue, cache_size))
+        self.process = Process(target=process_image_requests, args=(worker_id, self.task_queue,
+                                                                    result_queue, cache_size))
         self.queue_size = 0
         # this LRU cache holds the source file paths that should be in the process's image cache at
         # the time the last task on the task queue is processed and therefore allows us to use it as

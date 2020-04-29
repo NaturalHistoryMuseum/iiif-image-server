@@ -6,7 +6,7 @@ from PIL import Image
 from queue import Queue
 
 from iiif.image import IIIFImage
-from iiif.processing import Task, process_image_request
+from iiif.processing import Task, process_image_requests
 
 default_image_width = 4000
 default_image_height = 5000
@@ -53,9 +53,9 @@ def check_result(task, op_function):
                     hashlib.sha256(cropped_source.read()).digest())
 
 
-class TestProcessImageRequestLevel0:
+class TestProcessImageRequestsLevel0:
     """
-    Test the process_image_request function for IIIF Image API v3 level 0 compliance.
+    Test the process_image_requests function for IIIF Image API v3 level 0 compliance.
     See: https://iiif.io/api/image/3.0/compliance/.
 
     Note that we implicitly don't support rotations other than 0, quality other than and formats
@@ -68,7 +68,7 @@ class TestProcessImageRequestLevel0:
         task_queue.put(task)
         task_queue.put(None)
 
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
@@ -77,9 +77,9 @@ class TestProcessImageRequestLevel0:
         check_result(task, lambda img: img)
 
 
-class TestProcessImageRequestLevel1:
+class TestProcessImageRequestsLevel1:
     """
-    Test the process_image_request function for IIIF Image API v3 level 1 compliance.
+    Test the process_image_requests function for IIIF Image API v3 level 1 compliance.
     See: https://iiif.io/api/image/3.0/compliance/.
     """
 
@@ -89,7 +89,7 @@ class TestProcessImageRequestLevel1:
         task_queue.put(task)
         task_queue.put(None)
 
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
@@ -103,7 +103,7 @@ class TestProcessImageRequestLevel1:
         task_queue.put(task)
         task_queue.put(None)
 
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
@@ -117,7 +117,7 @@ class TestProcessImageRequestLevel1:
         task = Task(create_image(tmp_path, width, height), 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
         assert os.path.exists(task.output_path)
@@ -130,7 +130,7 @@ class TestProcessImageRequestLevel1:
         task = Task(create_image(tmp_path, width, height), 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
         assert os.path.exists(task.output_path)
@@ -143,7 +143,7 @@ class TestProcessImageRequestLevel1:
         task = Task(create_image(tmp_path, width, height), 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
         assert os.path.exists(task.output_path)
@@ -156,7 +156,7 @@ class TestProcessImageRequestLevel1:
         task = Task(create_image(tmp_path, width, height), 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
         assert os.path.exists(task.output_path)
@@ -169,7 +169,7 @@ class TestProcessImageRequestLevel1:
         task = Task(create_image(tmp_path, width, height), 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
         assert os.path.exists(task.output_path)
@@ -183,7 +183,7 @@ class TestProcessImageRequestLevel1:
         task_queue.put(task)
         task_queue.put(None)
 
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
@@ -198,7 +198,7 @@ class TestProcessImageRequestLevel1:
         task_queue.put(task)
         task_queue.put(None)
 
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
@@ -213,7 +213,7 @@ class TestProcessImageRequestLevel1:
         task_queue.put(task)
         task_queue.put(None)
 
-        process_image_request(0, task_queue, result_queue, 1)
+        process_image_requests(0, task_queue, result_queue, 1)
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task)
