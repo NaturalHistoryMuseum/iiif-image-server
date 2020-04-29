@@ -34,6 +34,7 @@ def process_image_request(worker_id, task_queue, result_queue, cache_size):
     # TODO: handle worker errors properly
     # TODO: jpegtran can't upscale, might want to prevent that from being asked for or use pillow
     #       for just those ops?
+    # TODO: jpegtran can't handle crops where x or y aren't multiple of 16, use pillow for these?
 
     try:
         # wait for tasks until we get a sentinel (in this case None)
