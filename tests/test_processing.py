@@ -220,3 +220,37 @@ class TestProcessImageRequestsLevel1:
         assert os.path.exists(task.output_path)
         check_size(task, width, height)
         check_result(task, lambda img: img.resize((width, height)))
+
+
+class TestProcessImageRequestsMisc:
+
+    def test_region_and_size_precise(self, image, task_queue, result_queue):
+        # simple check to make sure region and size play nicely together
+        task = Task(image, '100,200,600,891', '256,401')
+        task_queue.put(task)
+        task_queue.put(None)
+
+        process_image_requests(0, task_queue, result_queue, 1)
+
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, 256, 401)
+        check_result(task, lambda img: img.crop((100, 200, 600, 891)).resize((256, 401)))
+
+    def test_region_and_size_inferred(self, tmp_path, task_queue, result_queue):
+        # check to make sure region and size play nicely when they're both relying on image
+        # dimension ratios
+        width = 500
+        height = 700
+        task = Task(create_image(tmp_path, width, height), 'square', ',400')
+        task_queue.put(task)
+        task_queue.put(None)
+
+        process_image_requests(0, task_queue, result_queue, 1)
+
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task)
+        assert os.path.exists(task.output_path)
+        check_size(task, 400, 400)
+        check_result(task, lambda img: img.crop((0, 100, 500, 600)).resize((400, 400)))

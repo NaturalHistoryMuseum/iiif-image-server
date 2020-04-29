@@ -13,23 +13,26 @@ from multiprocessing.context import Process
 from threading import Thread
 from tornado.ioloop import IOLoop
 from tornado.locks import Event
+from tornado.web import HTTPError
 
 Crop = namedtuple('Crop', ('x', 'y', 'w', 'h'))
 
 
-def process_region(image, region, width, height):
+def process_region(image, region):
     """
     Processes a IIIF region parameter which essentially involves cropping the image.
 
     :param image: a jpegtran JPEGImage object
     :param region: the IIIF region parameter
-    :param width: the width of the image
-    :param height: the height of the image
     :return: a jpegtran JPEGImage object
     """
     if region == 'full':
         # no crop required!
         return image
+
+    # cache these dimensions as jpegtran has to work to get them
+    width = image.width
+    height = image.height
 
     if region == 'square':
         if width < height:
@@ -72,27 +75,30 @@ def process_region(image, region, width, height):
         return image.crop(*crop)
 
 
-def process_size(image, size, width, height):
+def process_size(image, size):
     """
     Processes a IIIF size parameter which essentially involves resizing the image.
 
     :param image: a jpegtran JPEGImage object
     :param size: the IIIF size parameter
-    :param width: the width of the image
-    :param height: the height of the image
     :return: a jpegtran JPEGImage object
     """
-    if size != 'max':
-        w, h = (float(v) if v != '' else v for v in size.split(','))
-        if h == '':
-            h = height * w / width
-        elif w == '':
-            w = width * h / height
-        # TODO: jpegtran can't upscale, might want to prevent that from being asked for or use
-        #       pillow for just those ops?
-        image = image.downscale(int(w), int(h))
+    if size == 'max':
+        return image
 
-    return image
+    width = image.width
+    height = image.height
+
+    w, h = (float(v) if v != '' else v for v in size.split(','))
+    if h == '':
+        h = height * w / width
+    elif w == '':
+        w = width * h / height
+
+    w = int(w)
+    h = int(h)
+
+    return image.downscale(w, h)
 
 
 def process_image_requests(worker_id, task_queue, result_queue, cache_size):
@@ -123,12 +129,9 @@ def process_image_requests(worker_id, task_queue, result_queue, cache_size):
                 image_cache[task.image.name] = JPEGImage(task.image.source_path)
 
             image = image_cache[task.image.name]
-            # cache the image size
-            width = image.width
-            height = image.height
 
-            image = process_region(image, task.region, width, height)
-            image = process_size(image, task.size, width, height)
+            image = process_region(image, task.region)
+            image = process_size(image, task.size)
 
             # ensure the full cache path exists
             os.makedirs(os.path.dirname(task.output_path), exist_ok=True)
