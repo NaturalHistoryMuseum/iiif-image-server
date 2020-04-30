@@ -100,7 +100,7 @@ def process_size(image, size):
 
     if width < w or height < h:
         raise HTTPError(status_code=400, reason='Size greater than extracted region without '
-                                                'specifying^')
+                                                'specifying ^')
 
     return image.downscale(w, h)
 
