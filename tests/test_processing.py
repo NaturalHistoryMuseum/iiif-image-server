@@ -6,9 +6,10 @@ import pytest
 from PIL import Image
 from queue import Queue
 from tornado.web import HTTPError
+from unittest.mock import patch, MagicMock, call
 
 from iiif.image import IIIFImage
-from iiif.processing import Task, process_image_requests, Worker
+from iiif.processing import Task, process_image_requests, Worker, ImageProcessingDispatcher
 
 default_image_width = 4000
 default_image_height = 5000
@@ -332,7 +333,7 @@ class TestWorker:
         task4 = Task(image4, 'full', 'max')
 
         worker.add(task1)
-        assert any(worker.is_warm_for(task) for task in (task1, ))
+        assert any(worker.is_warm_for(task) for task in (task1,))
         assert not any(worker.is_warm_for(task) for task in (task2, task3, task4))
 
         worker.add(task2)
@@ -374,3 +375,246 @@ class TestTask:
         # semantically these are the same but we don't recognise it
         assert Task(image1, 'full', 'max') != Task(image1, '0,0,100,200', 'max')
         assert Task(image1, 'full', 'max') != Task(image1, 'full', '100,200')
+
+
+class TestImageProcessingDispatcher:
+
+    @pytest.fixture
+    def dispatcher(self):
+        dispatcher = ImageProcessingDispatcher()
+        yield dispatcher
+        dispatcher.stop()
+
+    def test_result_listener(self):
+        ioloop_mock = MagicMock()
+        with patch('iiif.processing.IOLoop', ioloop_mock):
+            dispatcher = ImageProcessingDispatcher()
+            mock_result = ('some', 'mock', 'data')
+            dispatcher.result_queue.put(mock_result)
+            dispatcher.result_queue.put(None)
+            dispatcher.result_thread.join()
+
+        ioloop_mock.current().add_callback.assert_called_once_with(dispatcher.finish_task,
+                                                                   *mock_result)
+
+    def test_init_workers(self, dispatcher):
+        worker_mock = MagicMock()
+        with patch('iiif.processing.Worker', worker_mock):
+            dispatcher.init_workers(2, 3)
+
+        worker_mock.assert_has_calls([
+            call(0, dispatcher.result_queue, 3),
+            call(1, dispatcher.result_queue, 3)
+        ])
+        assert len(dispatcher.workers) == 2
+
+    def test_stop(self):
+        dispatcher = ImageProcessingDispatcher()
+        dispatcher.init_workers(2, 3)
+
+        worker0 = dispatcher.workers[0]
+        worker1 = dispatcher.workers[1]
+
+        with patch.object(worker0, 'stop', wraps=worker0.stop) as stop0:
+            with patch.object(worker1, 'stop', wraps=worker1.stop) as stop1:
+                dispatcher.stop()
+                stop0.assert_called_once()
+                stop1.assert_called_once()
+
+        assert dispatcher.result_queue.empty()
+        assert not dispatcher.result_thread.is_alive()
+
+    def test_finish_task_success(self, dispatcher, tmp_path):
+        worker_id = 0
+        task = Task(create_image(tmp_path, 100, 200), 'full', 'max')
+        mock_future = MagicMock()
+        mock_worker = MagicMock()
+        dispatcher.workers[worker_id] = mock_worker
+        dispatcher.output_paths[task.output_path] = mock_future
+
+        dispatcher.finish_task(worker_id, task, None)
+
+        mock_worker.done.assert_called_once_with(task)
+        mock_future.set_result.called_once_with(None)
+        mock_future.set_exception.assert_not_called()
+
+    def test_finish_task_failure(self, dispatcher, tmp_path):
+        worker_id = 0
+        task = Task(create_image(tmp_path, 100, 200), 'full', 'max')
+        mock_future = MagicMock()
+        mock_worker = MagicMock()
+        mock_exception = MagicMock()
+        dispatcher.workers[worker_id] = mock_worker
+        dispatcher.output_paths[task.output_path] = mock_future
+
+        dispatcher.finish_task(worker_id, task, mock_exception)
+
+        mock_worker.done.assert_called_once_with(task)
+        mock_future.set_exception.called_once_with(mock_exception)
+        mock_future.set_result.assert_not_called()
+
+    def test_choose_worker_all_empty(self, dispatcher):
+        worker0 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        worker2 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        dispatcher.workers[2] = worker2
+
+        mock_choice = MagicMock()
+        with patch('iiif.processing.random', MagicMock(choice=mock_choice)):
+            dispatcher.choose_worker(MagicMock())
+
+        mock_choice.assert_called_once_with([worker0, worker1, worker2])
+
+    def test_choose_worker_all_really_full(self, dispatcher):
+        worker0 = MagicMock(queue_size=100, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=100, is_warm_for=MagicMock(return_value=False))
+        worker2 = MagicMock(queue_size=100, is_warm_for=MagicMock(return_value=False))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        dispatcher.workers[2] = worker2
+
+        mock_choice = MagicMock()
+        with patch('iiif.processing.random', MagicMock(choice=mock_choice)):
+            dispatcher.choose_worker(MagicMock())
+
+        mock_choice.assert_called_once_with([worker0, worker1, worker2])
+
+    def test_choose_worker_some_warm(self, dispatcher):
+        worker0 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=True))
+        worker2 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=True))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        dispatcher.workers[2] = worker2
+
+        mock_choice = MagicMock()
+        with patch('iiif.processing.random', MagicMock(choice=mock_choice)):
+            dispatcher.choose_worker(MagicMock())
+
+        mock_choice.assert_called_once_with([worker1, worker2])
+
+    def test_choose_worker_scenario_1(self, dispatcher):
+        """
+        Worker states:
+            - 0: empty, not warm
+            - 1: empty, warm
+
+        Worker 1 should be chosen as warm and empty is better than not warm and empty.
+        """
+        worker0 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=True))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        assert worker1 == dispatcher.choose_worker(MagicMock())
+
+    def test_choose_worker_scenario_2(self, dispatcher):
+        """
+        Worker states:
+            - 0: full, not warm
+            - 1: full, warm
+
+        Worker 1 should be chosen as warm and full is better than not warm and full.
+        """
+        worker0 = MagicMock(queue_size=3, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=3, is_warm_for=MagicMock(return_value=True))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        assert worker1 == dispatcher.choose_worker(MagicMock())
+
+    def test_choose_worker_scenario_3(self, dispatcher):
+        """
+        Worker states:
+            - 0: some tasks, not warm
+            - 1: some tasks, warm
+
+        Worker 1 should be chosen as warm with some tasks is better than not warm and some tasks.
+        """
+        worker0 = MagicMock(queue_size=1, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=1, is_warm_for=MagicMock(return_value=True))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        assert worker1 == dispatcher.choose_worker(MagicMock())
+
+    def test_choose_worker_scenario_4(self, dispatcher):
+        """
+        Worker states:
+            - 0: full, not warm
+            - 1: empty, not warm
+
+        Worker 1 should be chosen as empty but not warm is better than full and not warm
+        """
+        worker0 = MagicMock(queue_size=3, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        assert worker1 == dispatcher.choose_worker(MagicMock())
+
+    def test_choose_worker_scenario_5(self, dispatcher):
+        """
+        Worker states:
+            - 0: some tasks, not warm
+            - 1: empty, not warm
+            - 2: full, not warm
+
+        Worker 1 should be chosen as empty but not warm is better than full and not warm as well as
+        some tasks and not warm.
+        """
+        worker0 = MagicMock(queue_size=3, is_warm_for=MagicMock(return_value=False))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        worker2 = MagicMock(queue_size=1, is_warm_for=MagicMock(return_value=False))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        dispatcher.workers[2] = worker2
+        assert worker1 == dispatcher.choose_worker(MagicMock())
+
+    def test_choose_worker_scenario_6(self, dispatcher):
+        """
+        Worker states:
+            - 0: some tasks, warm
+            - 1: empty, warm
+            - 2: full, warm
+
+        Worker 1 should be chosen as empty but warm is better than full and warm as well as some
+        tasks and warm.
+        """
+        worker0 = MagicMock(queue_size=3, is_warm_for=MagicMock(return_value=True))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=True))
+        worker2 = MagicMock(queue_size=1, is_warm_for=MagicMock(return_value=True))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        dispatcher.workers[2] = worker2
+        assert worker1 == dispatcher.choose_worker(MagicMock())
+
+    def test_choose_worker_scenario_7(self, dispatcher):
+        """
+        Worker states:
+            - 0: full, warm
+            - 1: empty, not warm
+
+        Worker 1 should be chosen as empty but not warm is better than full and warm
+        """
+        worker0 = MagicMock(queue_size=3, is_warm_for=MagicMock(return_value=True))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        assert worker1 == dispatcher.choose_worker(MagicMock())
+
+    def test_choose_worker_scenario_8(self, dispatcher):
+        """
+        Worker states:
+            - 0: some tasks, warm
+            - 1: empty, not warm
+
+        A random choice between worker 0 and worker 1 should be made as warm but with some tasks is
+        equal to empty but not warm.
+        """
+        worker0 = MagicMock(queue_size=1, is_warm_for=MagicMock(return_value=True))
+        worker1 = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=False))
+        dispatcher.workers[0] = worker0
+        dispatcher.workers[1] = worker1
+        mock_choice = MagicMock()
+        with patch('iiif.processing.random', MagicMock(choice=mock_choice)):
+            dispatcher.choose_worker(MagicMock())
+        mock_choice.assert_called_once_with([worker0, worker1])
