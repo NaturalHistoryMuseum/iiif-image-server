@@ -359,3 +359,18 @@ class TestWorker:
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task, None)
+
+
+class TestTask:
+
+    def test_equality(self, tmp_path):
+        image1 = create_image(tmp_path, 100, 200, identifier='vfactor:image1')
+        image2 = create_image(tmp_path, 100, 200, identifier='vfactor:image2')
+
+        assert Task(image1, 'full', 'max') == Task(image1, 'full', 'max')
+        assert Task(image1, 'full', 'max') != Task(image2, 'full', 'max')
+        assert Task(image2, 'full', 'max') != Task(image2, 'full', '256,')
+        assert Task(image2, 'square', 'max') != Task(image2, 'full', 'max')
+        # semantically these are the same but we don't recognise it
+        assert Task(image1, 'full', 'max') != Task(image1, '0,0,100,200', 'max')
+        assert Task(image1, 'full', 'max') != Task(image1, 'full', '100,200')
