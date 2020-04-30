@@ -1,5 +1,6 @@
 import hashlib
 import io
+import multiprocessing as mp
 import os
 import pytest
 from PIL import Image
@@ -7,14 +8,14 @@ from queue import Queue
 from tornado.web import HTTPError
 
 from iiif.image import IIIFImage
-from iiif.processing import Task, process_image_requests
+from iiif.processing import Task, process_image_requests, Worker
 
 default_image_width = 4000
 default_image_height = 5000
 
 
-def create_image(tmp_path, width, height):
-    image = IIIFImage('vfactor:image', tmp_path / 'source', tmp_path / 'cache')
+def create_image(tmp_path, width, height, identifier='vfactor:image'):
+    image = IIIFImage(identifier, tmp_path / 'source', tmp_path / 'cache')
     os.makedirs(os.path.dirname(image.source_path), exist_ok=True)
     img = Image.new('RGB', (width, height), color='red')
     img.save(image.source_path, format='jpeg')
@@ -24,16 +25,6 @@ def create_image(tmp_path, width, height):
 @pytest.fixture
 def image(tmp_path):
     return create_image(tmp_path, default_image_width, default_image_height)
-
-
-@pytest.fixture
-def task_queue():
-    return Queue()
-
-
-@pytest.fixture
-def result_queue():
-    return Queue()
 
 
 def check_size(task, width, height):
@@ -54,7 +45,24 @@ def check_result(task, op_function):
                     hashlib.sha256(cropped_source.read()).digest())
 
 
-class TestProcessImageRequestsLevel0:
+class TestProcessImageRequests:
+    """
+    This base class just provides a couple of fixtures specific to these tests, namely a real Queue
+    but not a multiprocessing Queue as is actually used but a standard one.
+    """
+
+    @pytest.fixture
+    def task_queue(self):
+        # a real queue but not a multiprocessing one
+        return Queue()
+
+    @pytest.fixture
+    def result_queue(self):
+        # a real queue but not a multiprocessing one
+        return Queue()
+
+
+class TestProcessImageRequestsLevel0(TestProcessImageRequests):
     """
     Test the process_image_requests function for IIIF Image API v3 level 0 compliance.
     See: https://iiif.io/api/image/3.0/compliance/.
@@ -78,7 +86,7 @@ class TestProcessImageRequestsLevel0:
         check_result(task, lambda img: img)
 
 
-class TestProcessImageRequestsLevel1:
+class TestProcessImageRequestsLevel1(TestProcessImageRequests):
     """
     Test the process_image_requests function for IIIF Image API v3 level 1 compliance.
     See: https://iiif.io/api/image/3.0/compliance/.
@@ -223,7 +231,7 @@ class TestProcessImageRequestsLevel1:
         check_result(task, lambda img: img.resize((width, height)))
 
 
-class TestProcessImageRequestsMisc:
+class TestProcessImageRequestsMisc(TestProcessImageRequests):
 
     def test_region_and_size_precise(self, image, task_queue, result_queue):
         # simple check to make sure region and size play nicely together
@@ -270,3 +278,84 @@ class TestProcessImageRequestsMisc:
         assert isinstance(exception, HTTPError)
         assert exception.status_code == 400
         assert exception.reason == 'Size greater than extracted region without specifying^'
+
+
+class TestWorker:
+
+    @pytest.fixture
+    def worker(self, result_queue):
+        worker = Worker(0, result_queue, 1)
+        worker.stop()
+        return worker
+
+    @pytest.fixture
+    def task(self, image):
+        return Task(image, 'full', 'max')
+
+    @pytest.fixture
+    def result_queue(self):
+        return mp.Queue()
+
+    def test_add(self, worker, task):
+        assert worker.queue_size == 0
+
+        worker.add(task)
+
+        assert worker.queue_size == 1
+        assert task.image.source_path in worker.predicted_cache
+        assert worker.task_queue.qsize() == 1
+
+    def test_done(self, worker, task):
+        assert worker.queue_size == 0
+        worker.add(task)
+        assert worker.queue_size == 1
+        worker.done(task)
+        assert worker.queue_size == 0
+
+    def test_stop(self, result_queue):
+        worker = Worker(0, result_queue, 1)
+        worker.stop()
+        assert worker.task_queue.qsize() == 0
+        assert not worker.process.is_alive()
+
+    def test_is_warm_for(self, tmp_path, result_queue):
+        worker = Worker(0, result_queue, 2)
+
+        image1 = create_image(tmp_path, 100, 200, identifier='vfactor:image1')
+        image2 = create_image(tmp_path, 100, 200, identifier='vfactor:image2')
+        image3 = create_image(tmp_path, 100, 200, identifier='vfactor:image3')
+        image4 = create_image(tmp_path, 100, 200, identifier='vfactor:image4')
+
+        task1 = Task(image1, 'full', 'max')
+        task2 = Task(image2, 'full', 'max')
+        task3 = Task(image3, 'full', 'max')
+        task4 = Task(image4, 'full', 'max')
+
+        worker.add(task1)
+        assert any(worker.is_warm_for(task) for task in (task1, ))
+        assert not any(worker.is_warm_for(task) for task in (task2, task3, task4))
+
+        worker.add(task2)
+        assert any(worker.is_warm_for(task) for task in (task1, task2))
+        assert not any(worker.is_warm_for(task) for task in (task3, task4))
+
+        worker.add(task3)
+        assert any(worker.is_warm_for(task) for task in (task2, task3))
+        assert not any(worker.is_warm_for(task) for task in (task1, task4))
+
+        worker.add(task4)
+        assert any(worker.is_warm_for(task) for task in (task3, task4))
+        assert not any(worker.is_warm_for(task) for task in (task1, task2))
+
+        worker.stop()
+
+    def test_result_queue_is_used(self, tmp_path, result_queue):
+        worker = Worker(0, result_queue, 2)
+        image = create_image(tmp_path, 100, 200)
+        task = Task(image, 'full', 'max')
+
+        worker.add(task)
+        worker.stop()
+
+        assert result_queue.qsize() == 1
+        assert result_queue.get() == (0, task, None)
