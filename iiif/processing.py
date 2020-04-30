@@ -357,7 +357,8 @@ class ImageProcessingDispatcher:
     def finish_task(self, worker_id, task, exception):
         """
         Called by the result thread to signal that a task has finished processing. This function
-        simply sets the Event object associated with the task's output path.
+        simply retrieves the the Future object associated with the task's output path and sets its
+        result/exception.
 
         :param worker_id: the id of the worker that completed the task
         :param task: the task object that is complete
