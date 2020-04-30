@@ -298,7 +298,7 @@ class ImageProcessingDispatcher:
         already been completed (this is determined by the existence of the task's output path) then
         the task will not be reprocessed. Tornado Future objects are used to determine if a task has
         been completed or not. If the task has already been completed, this function will return
-        immeiately when awaited. If a task is requested again whilst it is already being processed,
+        immediately when awaited. If a task is requested again whilst it is already being processed,
         the Future object created for the in progress task will be awaited on by this function for
         the new processing request. This results in all tasks resolving at the same time upon the
         first task's completion.
