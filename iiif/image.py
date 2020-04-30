@@ -148,5 +148,19 @@ class IIIFImage:
         if self.type not in ImageSourceFetcher.supported_types:
             raise HTTPError(status_code=404, reason="Identifier type not supported")
 
-        self.source_path = os.path.join(root_source_path, self.type, self.name)
-        self.cache_path = os.path.join(root_cache_path, self.type, self.name)
+        self.root_source_path = root_source_path
+        self.root_cache_path = root_cache_path
+
+    @property
+    def source_path(self):
+        return os.path.join(self.root_source_path, self.type, self.name)
+
+    @property
+    def cache_path(self):
+        return os.path.join(self.root_cache_path, self.type, self.name)
+
+    def __eq__(self, other):
+        if isinstance(other, IIIFImage):
+            # we can just use the paths for equivalence as they include everything
+            return self.source_path == other.source_path and self.cache_path == other.cache_path
+        return NotImplemented

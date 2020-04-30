@@ -238,9 +238,18 @@ class Task:
         self.image = image
         self.region = region
         self.size = size
+
+    @property
+    def output_path(self):
         # the output path is formed by using the image's cache path and then each part of the
         # request as a folder in the path
-        self.output_path = os.path.join(image.cache_path, region, f'{size}.jpg')
+        return os.path.join(self.image.cache_path, self.region, f'{self.size}.jpg')
+
+    def __eq__(self, other):
+        if isinstance(other, Task):
+            # we can just use the output path for equivalence as it includes the region and size
+            return self.image == other.image and self.output_path == other.output_path
+        return NotImplemented
 
 
 class ImageProcessingDispatcher:
