@@ -123,8 +123,6 @@ def process_image_requests(worker_id, task_queue, result_queue, cache_size):
     """
     image_cache = LRU(cache_size)
 
-    # TODO: handle worker errors properly
-
     try:
         # wait for tasks until we get a sentinel (in this case None)
         for task in iter(task_queue.get, None):
