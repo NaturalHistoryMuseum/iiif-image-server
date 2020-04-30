@@ -5,6 +5,7 @@ import os
 import pytest
 from PIL import Image
 from queue import Queue
+from tornado.concurrent import Future
 from tornado.web import HTTPError
 from unittest.mock import patch, MagicMock, call
 
@@ -380,10 +381,11 @@ class TestTask:
 class TestImageProcessingDispatcher:
 
     @pytest.fixture
-    def dispatcher(self):
-        dispatcher = ImageProcessingDispatcher()
-        yield dispatcher
-        dispatcher.stop()
+    def dispatcher(self, event_loop):
+        with patch('iiif.processing.IOLoop', MagicMock(current=MagicMock(return_value=event_loop))):
+            dispatcher = ImageProcessingDispatcher()
+            yield dispatcher
+            dispatcher.stop()
 
     def test_result_listener(self):
         ioloop_mock = MagicMock()
@@ -618,3 +620,113 @@ class TestImageProcessingDispatcher:
         with patch('iiif.processing.random', MagicMock(choice=mock_choice)):
             dispatcher.choose_worker(MagicMock())
         mock_choice.assert_called_once_with([worker0, worker1])
+
+    @pytest.mark.asyncio
+    async def test_submit_already_in_progress_success(self, event_loop, dispatcher, tmp_path):
+        image_task = Task(create_image(tmp_path, 100, 100), 'full', 'max')
+
+        # create a future to mimic what would happen if a request for this task had already been
+        # submitted
+        previous_request_future = Future()
+        dispatcher.output_paths[image_task.output_path] = previous_request_future
+
+        # launch a task to which submits the task, this should await the result of the previous
+        # request future created above
+        task = event_loop.create_task(dispatcher.submit(image_task))
+        # indicate the the future is complete
+        previous_request_future.set_result(None)
+        # make sure our task is done
+        await task
+        # assert it
+        assert task.done()
+
+    @pytest.mark.asyncio
+    async def test_submit_already_in_progress_failure(self, event_loop, dispatcher, tmp_path):
+        image_task = Task(create_image(tmp_path, 100, 100), 'full', 'max')
+
+        # create a future to mimic what would happen if a request for this task had already been
+        # submitted
+        previous_request_future = Future()
+        dispatcher.output_paths[image_task.output_path] = previous_request_future
+
+        # launch a task to which submits the task, this should await the result of the previous
+        # request future created above
+        task = event_loop.create_task(dispatcher.submit(image_task))
+        # indicate the the future is complete but failed
+        mock_exception = Exception('test!')
+        previous_request_future.set_exception(mock_exception)
+
+        with pytest.raises(Exception) as e:
+            await task
+
+        assert e.value == mock_exception
+
+    @pytest.mark.asyncio
+    async def test_submit_already_finished_success(self, event_loop, dispatcher, tmp_path):
+        image_task = Task(create_image(tmp_path, 100, 100), 'full', 'max')
+
+        # create a future to mimic what would happen if a request for this task had already been
+        # submitted
+        previous_request_future = Future()
+        previous_request_future.set_result(None)
+        dispatcher.output_paths[image_task.output_path] = previous_request_future
+
+        # launch a task to which submits the task, this should finish almost immediately
+        task = event_loop.create_task(dispatcher.submit(image_task))
+        # make sure our task is done
+        await task
+        # assert it
+        assert task.done()
+
+    @pytest.mark.asyncio
+    async def test_submit_already_finished_failure(self, dispatcher, tmp_path):
+        image_task = Task(create_image(tmp_path, 100, 100), 'full', 'max')
+
+        # create a future to mimic what would happen if a request for this task had already been
+        # submitted
+        previous_request_future = Future()
+        mock_exception = Exception('test!')
+        previous_request_future.set_exception(mock_exception)
+        dispatcher.output_paths[image_task.output_path] = previous_request_future
+
+        with pytest.raises(Exception) as e:
+            await dispatcher.submit(image_task)
+
+        assert e.value == mock_exception
+
+    @pytest.mark.asyncio
+    async def test_submit_path_exists(self, dispatcher, tmp_path):
+        image_task = Task(create_image(tmp_path, 100, 100), 'full', 'max')
+
+        mock_worker = MagicMock()
+        dispatcher.workers[0] = mock_worker
+
+        with patch('iiif.processing.os.path.exists', MagicMock(return_value=True)):
+            await dispatcher.submit(image_task)
+
+        assert dispatcher.output_paths[image_task.output_path].done()
+        mock_worker.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_submit_path_does_not_exist(self, event_loop, dispatcher, tmp_path):
+        image_task = Task(create_image(tmp_path, 100, 100), 'full', 'max')
+
+        def mock_add(t):
+            # just immediately complete the task
+            dispatcher.output_paths[t.output_path].set_result(None)
+
+        mock_worker = MagicMock(queue_size=0, is_warm_for=MagicMock(return_value=True),
+                                add=MagicMock(side_effect=mock_add))
+        dispatcher.workers[0] = mock_worker
+
+        with patch('iiif.processing.os.path.exists', MagicMock(return_value=False)):
+            # launch a task to which submits the task, this should finish almost immediately
+            task = event_loop.create_task(dispatcher.submit(image_task))
+
+            # make sure our task is done
+            await task
+            # assert it
+            assert task.done()
+
+            assert dispatcher.output_paths[image_task.output_path].done()
+            mock_worker.add.assert_called_once_with(image_task)
