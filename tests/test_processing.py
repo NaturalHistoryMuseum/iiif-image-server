@@ -279,7 +279,7 @@ class TestProcessImageRequestsMisc(TestProcessImageRequests):
         assert result_task == task
         assert isinstance(exception, HTTPError)
         assert exception.status_code == 400
-        assert exception.reason == 'Size greater than extracted region without specifying^'
+        assert exception.reason == 'Size greater than extracted region without specifying ^'
 
 
 class TestWorker:

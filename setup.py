@@ -33,6 +33,7 @@ setup(
     tests_require=[
         'pytest~=5.4.1',
         'pytest-asyncio~=0.11.0',
+        'pytest-tornado~=0.8.0',
     ],
     classifiers=[
         "Programming Language :: Python :: 3.8",

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+from contextlib import contextmanager
 
 import os
 import yaml
@@ -12,6 +13,10 @@ from tornado.web import Application, RequestHandler
 
 from iiif.image import ImageSourceFetcher, ImageSourceSizer, IIIFImage
 from iiif.processing import ImageProcessingDispatcher, Task
+
+# disable DecompressionBombErrors
+# (https://pillow.readthedocs.io/en/latest/releasenotes/5.0.0.html#decompression-bombs-now-raise-exceptions)
+Image.MAX_IMAGE_PIXELS = None
 
 
 class CORSMixin:
@@ -164,50 +169,61 @@ class ImageInfoHandler(CORSMixin, RequestHandler):
         await self.finish(self.info_cache[image.name])
 
 
-def main():
+@contextmanager
+def create_application(config):
     """
-    Main entry function for the server.
+    Creates a Tornado Application object and yields it then, once the application run comes to an
+    end and the context manager regains control, clean up.
+
+    :param config: the config dict
+    :return: yields an Application object
     """
-    # disable DecompressionBombErrors
-    # (https://pillow.readthedocs.io/en/latest/releasenotes/5.0.0.html#decompression-bombs-now-raise-exceptions)
-    Image.MAX_IMAGE_PIXELS = None
-
-    # load the config file, it should be next to this script
-    root_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    with open(os.path.join(root_dir, 'config.yml'), 'r') as cf:
-        config = yaml.safe_load(cf)
-
-    # create an LRU cache to keep the most recent info.json request responses in
-    info_cache = LRU(config['info_cache_size'])
-
     # create the dispatcher which controls how image data requests are handled
     dispatcher = ImageProcessingDispatcher()
-
-    # create the image source managers which control image source retrieval and sizing
-    image_source_fetcher = ImageSourceFetcher(config)
     image_source_sizer = ImageSourceSizer(config)
 
     try:
+        # create an LRU cache to keep the most recent info.json request responses in
+        info_cache = LRU(config['info_cache_size'])
+
+        # create the image source managers which control image source retrieval and sizing
+        image_source_fetcher = ImageSourceFetcher(config)
+
         # initialise the process pool that backs the dispatcher
         dispatcher.init_workers(config['image_pool_size'], config['image_cache_size_per_process'])
 
-        # setup the tornado app
-        app = Application([
+        # create the tornado app
+        yield Application([
             (r'/(?P<identifier>.+)/info.json', ImageInfoHandler,
              dict(config=config, info_cache=info_cache, image_source_fetcher=image_source_fetcher,
                   image_source_sizer=image_source_sizer)),
             (r'/(?P<identifier>.+)/(?P<region>.+)/(?P<size>.+)/0/default.jpg', ImageDataHandler,
              dict(config=config, dispatcher=dispatcher, image_source_fetcher=image_source_fetcher)),
         ])
-        app.listen(config['http_port'])
-        print(f'Listening on {config["http_port"]}, our pid is {os.getpid()}')
-        IOLoop.current().start()
-    except KeyboardInterrupt:
-        print('Shutdown request received')
     finally:
+        # clean up
         image_source_sizer.stop()
         dispatcher.stop()
-        print('Shutdown complete')
+
+
+def main():
+    """
+    Main entry function for the server.
+    """
+    # load the config file, it should be in the folder above  this script's location
+    root_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    with open(os.path.join(root_dir, 'config.yml'), 'r') as cf:
+        config = yaml.safe_load(cf)
+
+    try:
+        with create_application(config) as app:
+            app.listen(config['http_port'])
+            print(f'Listening on {config["http_port"]}, our pid is {os.getpid()}')
+            IOLoop.current().start()
+    except KeyboardInterrupt:
+        print('Shutdown request received')
+
+    print('Shutdown complete')
 
 
 if __name__ == '__main__':
