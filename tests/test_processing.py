@@ -315,10 +315,10 @@ class TestWorker:
     def test_is_warm_for(self, config, result_queue):
         worker = Worker(0, result_queue, 2)
 
-        image1 = create_image(config, 100, 200, identifier='vfactor:image1')
-        image2 = create_image(config, 100, 200, identifier='vfactor:image2')
-        image3 = create_image(config, 100, 200, identifier='vfactor:image3')
-        image4 = create_image(config, 100, 200, identifier='vfactor:image4')
+        image1 = create_image(config, 100, 200, identifier='test:image1')
+        image2 = create_image(config, 100, 200, identifier='test:image2')
+        image3 = create_image(config, 100, 200, identifier='test:image3')
+        image4 = create_image(config, 100, 200, identifier='test:image4')
 
         task1 = Task(image1, 'full', 'max')
         task2 = Task(image2, 'full', 'max')
@@ -358,8 +358,8 @@ class TestWorker:
 class TestTask:
 
     def test_equality(self, config):
-        image1 = create_image(config, 100, 200, identifier='vfactor:image1')
-        image2 = create_image(config, 100, 200, identifier='vfactor:image2')
+        image1 = create_image(config, 100, 200, identifier='test:image1')
+        image2 = create_image(config, 100, 200, identifier='test:image2')
 
         assert Task(image1, 'full', 'max') == Task(image1, 'full', 'max')
         assert Task(image1, 'full', 'max') != Task(image2, 'full', 'max')

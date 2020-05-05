@@ -15,7 +15,7 @@ def app(config):
 
 @pytest.mark.gen_test
 async def test_image_data_handler(config, http_client, base_url):
-    identifier = 'vfactor:image'
+    identifier = 'test:image'
     image = create_image(config, 400, 500, identifier=identifier)
     with open(image.source_path, 'rb') as f:
         original_image_hash = hashlib.sha256(f.read()).digest()
@@ -28,7 +28,7 @@ async def test_image_data_handler(config, http_client, base_url):
 
 @pytest.mark.gen_test
 async def test_image_info_handler(config, http_client, base_url):
-    identifier = 'vfactor:image'
+    identifier = 'test:image'
     create_image(config, 400, 500, identifier=identifier)
 
     response = await http_client.fetch(f'{base_url}/{identifier}/info.json')
@@ -59,7 +59,7 @@ async def test_image_info_handler(config, http_client, base_url):
 
 @pytest.mark.gen_test
 async def test_image_info_handler_no_image(http_client, base_url):
-    identifier = 'vfactor:image'
+    identifier = 'test:image'
 
     with pytest.raises(HTTPClientError) as e:
         await http_client.fetch(f'{base_url}/{identifier}/info.json')
@@ -85,7 +85,7 @@ async def test_image_info_handler_invalid_type(http_client, base_url):
 
 @pytest.mark.gen_test
 async def test_image_info_handler_unsupported_iiif_features(config, http_client, base_url):
-    identifier = 'vfactor:image'
+    identifier = 'test:image'
     create_image(config, 400, 500, identifier=identifier)
 
     with pytest.raises(HTTPClientError) as e:

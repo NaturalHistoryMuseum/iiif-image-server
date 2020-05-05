@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-
+import base64
+import functools
 import os
+import re
 from PIL import Image
 from concurrent.futures.process import ProcessPoolExecutor
 from tornado.concurrent import Future
@@ -59,11 +61,6 @@ class ImageSourceFetcher:
     Provides a central place to fetch source images and ensure they're on disk.
     """
 
-    # these are the types of image source we currently support
-    supported_types = {'vfactor', 'mam'}
-    # the mam preview base url
-    mam_url = 'https://www.nhm.ac.uk/services/media-store/asset/{}/contents/preview'
-
     def __init__(self, config):
         """
         :param config: the config
@@ -71,6 +68,9 @@ class ImageSourceFetcher:
         self.config = config
         # a register of the source images and their load status
         self.images = {}
+        self.types = {}
+        for supported_type, options in self.config['types'].items():
+            self.types[supported_type] = (options.pop('source'), options)
 
     async def ensure_source_exists(self, image):
         """
@@ -82,6 +82,9 @@ class ImageSourceFetcher:
 
         :param image: the Image object
         """
+        if image.type not in self.types:
+            raise HTTPError(status_code=400, reason='Identifier type not supported')
+
         if image.identifier in self.images:
             # the source file has either already been retrieved or is currently being retrieved,
             # await the original request's result
@@ -89,39 +92,82 @@ class ImageSourceFetcher:
             # get outta here, we're done!
             return
 
-        # we represent that state of the source file as a future, it will be resolved once we either
+        # we represent the state of the source file as a future, it will be resolved once we either
         # have the source file or couldn't get it and therefore need to raise an exception
         self.images[image.identifier] = Future()
-        exception = None
         if not os.path.exists(image.source_path):
-            if image.type == 'mam':
-                exception = await self._fetch_mam_image(image)
-            elif image.type == 'vfactor':
-                # if the vfactor image isn't on disk we have no way to retrieve so error
-                exception = HTTPError(status_code=404, reason='VFactor image not found')
-            else:
-                # we don't recognise this identifier type so error
-                exception = HTTPError(status_code=500, reason='Identifier type not supported')
+            source_type, options = self.types[image.type]
 
-        if exception is not None:
-            self.images[image.identifier].set_exception(exception)
-            raise exception
-        else:
-            # complete the future as the source file should be on disk now
-            self.images[image.identifier].set_result(None)
+            fetch_function = getattr(self, f'_fetch_{source_type}_image',
+                                     functools.partial(self._source_not_supported, source_type))
+            try:
+                await fetch_function(image, **options)
+            except Exception as exception:
+                # set the exception on the future so that any future or concurrent requests for the
+                # same task get the same exception
+                self.images[image.identifier].set_exception(exception)
+                # raise it for the current caller
+                raise exception
 
-    async def _fetch_mam_image(self, image):
+        # complete the future as the source file is on disk now
+        self.images[image.identifier].set_result(None)
+
+    async def _source_not_supported(self, source_type, *args, **kwargs):
         """
-        Fetch the image from MAM using the name as the asset ID. Currently we can only support image
-        requests using the media store's "preview" size which isn't great but I guess it's better
-        than nothing!
+        Default handler for requests where the source type is present in the config but doesn't have
+        a corresponding fetch function. If a request gets here then there is a config error, not a
+        user request error, hence the 500 response code.
 
-        :param image: the Image object
+        This function always raises a HTTPError error.
+
+        :param source_type: the source type that didn't have a matching fetch function
+        :raise: an HTTPError
+        """
+        raise HTTPError(status_code=500, reason=f'Identifier type {source_type} not supported')
+
+    async def _fetch_disk_image(self, *args, **kwargs):
+        """
+        Fetch handler for already on disk images. These images are expected to have been preloaded
+        into the correct location and therefore if they don't exist and we end up in this handler,
+        something has gone wrong! Therefore, this function always just raises an HTTPError.
+
+        :raise: an HTTPError
+        """
+        raise HTTPError(status_code=404, reason='Source image not found')
+
+    async def _fetch_trusted_web_image(self, image, regex):
+        """
+        Fetch handler for "trusted web" images. This is a mechanism that allows semi-arbitrary URL
+        images to be served through this server. Allowing requesters to just use a whole URL as the
+        identifier and have the server just go request it would be bad for many reasons so this is
+        the middle ground where a URL can be used as the identifier but it has to match the given
+        regex (defined in the config) to be allowed through and actually requested by the server.
+
+        The identifier must be a URL-safe, base64 encoded UTF-8 string.
+
+        :param image: the IIIFImage object
+        :param regex: the regex the URL must match to be fetched
+        :raise: an HTTPError if the URL doesn't match the regex
+        """
+        url = base64.urlsafe_b64decode(image.name).decode('utf-8')
+        if re.compile(regex).match(url):
+            await self._fetch_web_image(image, url)
+        else:
+            raise HTTPError(status_code=400, reason='Type not matched')
+
+    async def _fetch_web_image(self, image, url):
+        """
+        Fetch handler for web images. The name from the image parameter is used to `format` the URL
+        and therefore can be used to complete a URL. This also means that the URL can be complete
+        with no named "name" format placeholder.
+
+        :param image: the IIIFImage object
+        :param url: the URL to add the name to and then fetch
         """
         http_client = AsyncHTTPClient()
-        response = await http_client.fetch(self.mam_url.format(image.name), raise_error=False)
+        response = await http_client.fetch(url.format(name=image.name), raise_error=False)
         if response.code != 200:
-            return HTTPError(status_code=404, reason=f'MAM image not found ({response.code})')
+            raise HTTPError(status_code=404, reason=f'Source image not found ({response.code})')
 
         os.makedirs(os.path.dirname(image.source_path), exist_ok=True)
         with open(os.path.join(image.source_path), 'wb') as f:
@@ -144,10 +190,6 @@ class IIIFImage:
 
         self.identifier = identifier
         self.type, self.name = identifier.split(':', 1)
-
-        if self.type not in ImageSourceFetcher.supported_types:
-            raise HTTPError(status_code=404, reason="Identifier type not supported")
-
         self.root_source_path = root_source_path
         self.root_cache_path = root_cache_path
 
