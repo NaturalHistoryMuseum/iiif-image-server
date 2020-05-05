@@ -13,6 +13,7 @@ def config(tmp_path, base_url):
         'image_pool_size': 1,
         'info_cache_size': 1,
         'image_cache_size_per_process': 1,
+        'max_http_fetches': 1,
         'types': {
             'test': {
                 'source': 'disk',

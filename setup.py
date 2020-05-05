@@ -26,6 +26,7 @@ setup(
         'pillow~=7.1.2',
         'pyyaml~=5.3.1',
         'tornado~=6.0.4',
+        'pycurl~=7.43.0.5',
     ],
     dependency_links=[
         jpegtran_url,

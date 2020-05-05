@@ -65,6 +65,10 @@ class ImageSourceFetcher:
         """
         :param config: the config
         """
+        # the curl implementation is the fastest and best overall so force its use
+        AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",
+                                  max_clients=config['max_http_fetches'])
+
         self.config = config
         # a register of the source images and their load status
         self.images = {}
