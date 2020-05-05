@@ -194,10 +194,10 @@ def create_application(config):
 
         # create the tornado app
         yield Application([
-            (r'/(?P<identifier>.+)/info.json', ImageInfoHandler,
+            (r'/(?P<identifier>.+?)/info.json', ImageInfoHandler,
              dict(config=config, info_cache=info_cache, image_source_fetcher=image_source_fetcher,
                   image_source_sizer=image_source_sizer)),
-            (r'/(?P<identifier>.+)/(?P<region>.+)/(?P<size>.+)/0/default.jpg', ImageDataHandler,
+            (r'/(?P<identifier>.+?)/(?P<region>.+?)/(?P<size>.+?)/0/default.jpg', ImageDataHandler,
              dict(config=config, dispatcher=dispatcher, image_source_fetcher=image_source_fetcher)),
         ])
     finally:
