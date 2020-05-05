@@ -20,3 +20,7 @@ info_cache_size: 1024
 # the number of source images to keep in an LRU in memory cache, per process in the image process
 # pool. This effectively controls the memory usage of the server as a whole
 image_cache_size_per_process: 5
+# the number of allows simultaneous HTTP(S) requests through tornado's AsyncHTTPClient
+max_http_fetches: 10
+# the identifier types allowed on this server and their sources
+types: {}
