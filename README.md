@@ -39,27 +39,16 @@ See the config section for more information about configuring identifier types a
 
 | Name | Description | Example |
 |----|-----------|-------|
-| `base_url` | The base URL to use in `info.json` responses. This should be the base URL for this
-server. | `http://10.11.20.12/iiif_images` |
+| `base_url` | The base URL to use in `info.json` responses. This should be the base URL for this server. | `http://10.11.20.12/iiif_images` |
 | `http_port` | The HTTP port to listen on | 4040 |
-| `cache_path` | The full path where derivative images created as part of data requests should be
-cached | `/var/lib/iiif_image_server/cache` |
-| `source_path` | The full path where source images should be found/stored |
-`/var/lib/iiif_image_server/source` |
-| `min_sizes_size` | The minimum size that should be returned as part of the `sizes` array in
-`info.json` responses | 200 |
-| `size_pool_size` | The number of processes to use in the process pool that extracts size
-information about images for use in `info.json` responses | 2 |
-| `image_pool_size` | The number of processes to use in the process pool that performs image
-manipulations to meet the needs of data requests | 4 |
+| `cache_path` | The full path where derivative images created as part of data requests should be cached | `/var/lib/iiif_image_server/cache` |
+| `source_path` | The full path where source images should be found/stored | `/var/lib/iiif_image_server/source` |
+| `min_sizes_size` | The minimum size that should be returned as part of the `sizes` array in `info.json` responses | 200 |
+| `size_pool_size` | The number of processes to use in the process pool that extracts size information about images for use in `info.json` responses | 2 |
+| `image_pool_size` | The number of processes to use in the process pool that performs image manipulations to meet the needs of data requests | 4 |
 | `info_cache_size` | The size of the LRU cache that stores `info.json` responses | 1024 |
-| `image_cache_size_per_process` | The size of the LRU cache that stores source image data, per
-image pool process. Source images can be very large so this value should be considered with the size
-of images in memory and the value of the `image_pool_size` config option | 5 |
-| `max_http_fetches` | The maximum number of image source HTTP(S) requests that can be active at a
-time. This is not a limit on the number of clients to the server, it is a limit for images that need
-to be fetched from a web source before they can
-used by the server (i.e. `web` or `trusted_web` source types) | 10 |
+| `image_cache_size_per_process` | The size of the LRU cache that stores source image data, per image pool process. Source images can be very large so this value should be considered with the size of images in memory and the value of the `image_pool_size` config option | 5 |
+| `max_http_fetches` | The maximum number of image source HTTP(S) requests that can be active at a time. This is not a limit on the number of clients to the server, it is a limit for images that need to be fetched from a web source before they can used by the server (i.e. `web` or `trusted_web` source types) | 10 |
 | `types` | Defines the supported types on this server, see the section below for details | {} |
 
 ### Types
