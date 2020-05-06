@@ -4,21 +4,52 @@ from collections import defaultdict, namedtuple
 
 import io
 import multiprocessing as mp
-import os
 import random
 from PIL import Image
 from jpegtran import JPEGImage
 from lru import LRU
 from multiprocessing.context import Process
+from pathlib import Path
 from threading import Thread
 from tornado.concurrent import Future
 from tornado.ioloop import IOLoop
 from tornado.web import HTTPError
+from typing import Any, Optional
+
+from iiif.image import IIIFImage
 
 Crop = namedtuple('Crop', ('x', 'y', 'w', 'h'))
 
 
-def process_region(image, region):
+class Task:
+    """
+    Class representing an image processing task as defined by a IIIF based request.
+    """
+
+    def __init__(self, image: IIIFImage, region: str, size: str):
+        """
+        :param image: the Image object to work on
+        :param region: the IIIF region request parameter
+        :param size: the IIIF size request parameter
+        """
+        self.image = image
+        self.region = region
+        self.size = size
+
+    @property
+    def output_path(self) -> Path:
+        # the output path is formed by using the image's cache path and then each part of the
+        # request as a folder in the path
+        return self.image.cache_path / self.region / f'{self.size}.jpg'
+
+    def __eq__(self, other):
+        if isinstance(other, Task):
+            # we can just use the output path for equivalence as it includes the region and size
+            return self.image == other.image and self.output_path == other.output_path
+        return NotImplemented
+
+
+def process_region(image: JPEGImage, region: str) -> JPEGImage:
     """
     Processes a IIIF region parameter which essentially involves cropping the image.
 
@@ -75,7 +106,7 @@ def process_region(image, region):
         return image.crop(*crop)
 
 
-def process_size(image, size):
+def process_size(image: JPEGImage, size: str) -> JPEGImage:
     """
     Processes a IIIF size parameter which essentially involves resizing the image.
 
@@ -105,7 +136,8 @@ def process_size(image, size):
     return image.downscale(w, h)
 
 
-def process_image_requests(worker_id, task_queue, result_queue, cache_size):
+def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: mp.Queue,
+                           cache_size: int):
     """
     Processes a given task queue, putting tasks on the given results queue once complete. This
     function is blocking and should be run in a separate process.
@@ -137,9 +169,9 @@ def process_image_requests(worker_id, task_queue, result_queue, cache_size):
                 image = process_size(image, task.size)
 
                 # ensure the full cache path exists
-                os.makedirs(os.path.dirname(task.output_path), exist_ok=True)
+                task.output_path.parent.mkdir(parents=True, exist_ok=True)
                 # write the processed image to disk
-                with open(task.output_path, 'wb') as f:
+                with task.output_path.open('wb') as f:
                     f.write(image.as_blob())
 
                 # put our worker id, the task and None on the result queue to indicate to the main
@@ -161,7 +193,7 @@ class Worker:
     Class representing an image processing worker process.
     """
 
-    def __init__(self, worker_id, result_queue, cache_size):
+    def __init__(self, worker_id: Any, result_queue: mp.Queue, cache_size: int):
         """
         :param worker_id: the worker's id, handy for debugging and not really used otherwise
         :param result_queue: the multiprocessing Queue that should be used by the worker to indicate
@@ -183,7 +215,7 @@ class Worker:
         self.predicted_cache = LRU(cache_size)
         self.process.start()
 
-    def add(self, task):
+    def add(self, task: Task):
         """
         Adds the given task to this worker's task queue.
 
@@ -195,7 +227,7 @@ class Worker:
         # asyncio thread
         self.task_queue.put(task)
 
-    def done(self, task):
+    def done(self, task: Task):
         """
         Call this to notify this worker that it completed the given task.
 
@@ -212,7 +244,7 @@ class Worker:
         self.task_queue.put(None)
         self.process.join()
 
-    def is_warm_for(self, task):
+    def is_warm_for(self, task: Task) -> bool:
         """
         Determines whether the worker is warmed up for a given task. This just checks to see whether
         the source image will be in the worker's LRU cache when it is processed if it is added to
@@ -222,34 +254,6 @@ class Worker:
         :return: True if the source path is warm on this worker or False if not
         """
         return task.image.source_path in self.predicted_cache
-
-
-class Task:
-    """
-    Class representing an image processing task as defined by a IIIF based request.
-    """
-
-    def __init__(self, image, region, size):
-        """
-        :param image: the Image object to work on
-        :param region: the IIIF region request parameter
-        :param size: the IIIF size request parameter
-        """
-        self.image = image
-        self.region = region
-        self.size = size
-
-    @property
-    def output_path(self):
-        # the output path is formed by using the image's cache path and then each part of the
-        # request as a folder in the path
-        return os.path.join(self.image.cache_path, self.region, f'{self.size}.jpg')
-
-    def __eq__(self, other):
-        if isinstance(other, Task):
-            # we can just use the output path for equivalence as it includes the region and size
-            return self.image == other.image and self.output_path == other.output_path
-        return NotImplemented
 
 
 class ImageProcessingDispatcher:
@@ -282,7 +286,7 @@ class ImageProcessingDispatcher:
         for result in iter(self.result_queue.get, None):
             self.loop.add_callback(self.finish_task, *result)
 
-    def init_workers(self, worker_count, worker_cache_size):
+    def init_workers(self, worker_count: int, worker_cache_size: int):
         """
         Initialises the required number of workers.
 
@@ -292,7 +296,7 @@ class ImageProcessingDispatcher:
         for i in range(worker_count):
             self.workers[i] = Worker(i, self.result_queue, worker_cache_size)
 
-    async def submit(self, task):
+    async def submit(self, task: Task):
         """
         Submits the given task to be processed on one of our worker processes. If the task has
         already been completed (this is determined by the existence of the task's output path) then
@@ -309,7 +313,7 @@ class ImageProcessingDispatcher:
             # we haven't processed this task before, create a Future and add it to the output_paths
             processed_future = Future()
             self.output_paths[task.output_path] = processed_future
-            if os.path.exists(task.output_path):
+            if task.output_path.exists():
                 # if the path exists the task was created before this server started up, set the
                 # result to indicate the task is complete
                 processed_future.set_result(None)
@@ -320,7 +324,7 @@ class ImageProcessingDispatcher:
 
         await self.output_paths[task.output_path]
 
-    def choose_worker(self, task):
+    def choose_worker(self, task: Task) -> Worker:
         """
         Select a worker for the given task. Workers are chosen by giving them a score and then
         randomly choosing the worker from the group with highest score.
@@ -354,7 +358,7 @@ class ImageProcessingDispatcher:
         # choose the bucket with the highest score and pick a worker at random from it
         return random.choice(buckets[max(buckets.keys())])
 
-    def finish_task(self, worker_id, task, exception):
+    def finish_task(self, worker_id: Any, task: Task, exception: Optional[Exception]):
         """
         Called by the result thread to signal that a task has finished processing. This function
         simply retrieves the the Future object associated with the task's output path and sets its

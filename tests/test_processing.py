@@ -7,7 +7,7 @@ from PIL import Image
 from queue import Queue
 from tornado.concurrent import Future
 from tornado.web import HTTPError
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock, call, PropertyMock
 
 from iiif.processing import Task, process_image_requests, Worker, ImageProcessingDispatcher
 from tests.utils import create_image
@@ -75,7 +75,7 @@ class TestProcessImageRequestsLevel0(TestProcessImageRequests):
 
         assert result_queue.qsize() == 1
         assert result_queue.get() == (0, task, None)
-        assert os.path.exists(task.output_path)
+        assert task.output_path.exists()
         check_size(task, default_image_width, default_image_height)
         check_result(task, lambda img: img)
 
@@ -690,11 +690,15 @@ class TestImageProcessingDispatcher:
     async def test_submit_path_exists(self, dispatcher, config):
         image_task = Task(create_image(config, 100, 100), 'full', 'max')
 
+        # make sure the path exists and write some data there
+        image_task.output_path.parent.mkdir(parents=True, exist_ok=True)
+        with image_task.output_path.open('w') as f:
+            f.write('something!')
+
         mock_worker = MagicMock()
         dispatcher.workers[0] = mock_worker
 
-        with patch('iiif.processing.os.path.exists', MagicMock(return_value=True)):
-            await dispatcher.submit(image_task)
+        await dispatcher.submit(image_task)
 
         assert dispatcher.output_paths[image_task.output_path].done()
         mock_worker.add.assert_not_called()
@@ -711,14 +715,13 @@ class TestImageProcessingDispatcher:
                                 add=MagicMock(side_effect=mock_add))
         dispatcher.workers[0] = mock_worker
 
-        with patch('iiif.processing.os.path.exists', MagicMock(return_value=False)):
-            # launch a task to which submits the task, this should finish almost immediately
-            task = event_loop.create_task(dispatcher.submit(image_task))
+        # launch a task to which submits the task, this should finish almost immediately
+        task = event_loop.create_task(dispatcher.submit(image_task))
 
-            # make sure our task is done
-            await task
-            # assert it
-            assert task.done()
+        # make sure our task is done
+        await task
+        # assert it
+        assert task.done()
 
-            assert dispatcher.output_paths[image_task.output_path].done()
-            mock_worker.add.assert_called_once_with(image_task)
+        assert dispatcher.output_paths[image_task.output_path].done()
+        mock_worker.add.assert_called_once_with(image_task)

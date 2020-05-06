@@ -19,13 +19,13 @@ class TestIIIFImage:
         assert e.value.status_code == 404
         assert e.value.reason == 'Identifier type not specified'
 
-    def test_it_does_work(self):
-        image = IIIFImage('test:animage', 'source', 'cache')
+    def test_it_does_work(self, config):
+        image = IIIFImage('test:animage', config['source_path'], config['cache_path'])
 
         assert image.type == 'test'
         assert image.name == 'animage'
-        assert image.source_path == os.path.join('source', image.type, image.name)
-        assert image.cache_path == os.path.join('cache', image.type, image.name)
+        assert image.source_path == config['source_path'] / image.type / image.name
+        assert image.cache_path == config['cache_path'] / image.type / image.name
 
 
 class TestImageSourceFetcher:

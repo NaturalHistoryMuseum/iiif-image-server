@@ -2,19 +2,54 @@
 # encoding: utf-8
 import base64
 import functools
-import os
 import re
 from PIL import Image
 from concurrent.futures.process import ProcessPoolExecutor
+from pathlib import Path
 from tornado.concurrent import Future
 from tornado.httpclient import AsyncHTTPClient
 from tornado.ioloop import IOLoop
 from tornado.web import HTTPError
+from typing import Any, Tuple
+
+
+class IIIFImage:
+    """
+    This class represents an image identified by a IIIF identifier from a request URL.
+    """
+
+    def __init__(self, identifier: str, root_source_path: Path, root_cache_path: Path):
+        """
+        :param identifier: the IIIF identifier, this should be in the format type:name
+        :param root_source_path: the root source path for all source images
+        :param root_cache_path: the root cache path for all cache images
+        """
+        if ':' not in identifier:
+            raise HTTPError(status_code=404, reason="Identifier type not specified")
+
+        self.identifier = identifier
+        self.type, self.name = identifier.split(':', 1)
+        self.root_source_path = root_source_path
+        self.root_cache_path = root_cache_path
+
+    @property
+    def source_path(self) -> Path:
+        return self.root_source_path / self.type / self.name
+
+    @property
+    def cache_path(self) -> Path:
+        return self.root_cache_path / self.type / self.name
+
+    def __eq__(self, other: Any):
+        if isinstance(other, IIIFImage):
+            # we can just use the paths for equivalence as they include everything
+            return self.source_path == other.source_path and self.cache_path == other.cache_path
+        return NotImplemented
 
 
 class ImageSourceSizer:
 
-    def __init__(self, config):
+    def __init__(self, config: dict):
         """
         :param config: the config
         """
@@ -22,7 +57,7 @@ class ImageSourceSizer:
         self.pool = ProcessPoolExecutor(max_workers=config['size_pool_size'])
 
     @staticmethod
-    def _get_image_size(image):
+    def _get_image_size(image: IIIFImage) -> Tuple[int, int]:
         """
         Returns the width and height dimensions of the given image using Pillow. This should be very
         fast as Pillow should only need to read the first few bytes of the file to determine the
@@ -39,7 +74,7 @@ class ImageSourceSizer:
         with Image.open(image.source_path) as pillow_image:
             return pillow_image.width, pillow_image.height
 
-    async def get_image_size(self, image):
+    async def get_image_size(self, image: IIIFImage) -> Tuple[int, int]:
         """
         Returns the width and height dimensions of the given image using Pillow. Extraction is done
         asynchronously using a process pool.
@@ -61,7 +96,7 @@ class ImageSourceFetcher:
     Provides a central place to fetch source images and ensure they're on disk.
     """
 
-    def __init__(self, config):
+    def __init__(self, config: dict):
         """
         :param config: the config
         """
@@ -76,7 +111,7 @@ class ImageSourceFetcher:
         for supported_type, options in self.config['types'].items():
             self.types[supported_type] = (options.pop('source'), options)
 
-    async def ensure_source_exists(self, image):
+    async def ensure_source_exists(self, image: IIIFImage):
         """
         Ensures the source file for the given image is on disk. This function is safe to await
         multiple times for the same source as it will ensure the source is only retrieved once (if
@@ -99,7 +134,7 @@ class ImageSourceFetcher:
         # we represent the state of the source file as a future, it will be resolved once we either
         # have the source file or couldn't get it and therefore need to raise an exception
         self.images[image.identifier] = Future()
-        if not os.path.exists(image.source_path):
+        if not image.source_path.exists():
             source_type, options = self.types[image.type]
 
             fetch_function = getattr(self, f'_fetch_{source_type}_image',
@@ -116,7 +151,7 @@ class ImageSourceFetcher:
         # complete the future as the source file is on disk now
         self.images[image.identifier].set_result(None)
 
-    async def _source_not_supported(self, source_type, *args, **kwargs):
+    async def _source_not_supported(self, source_type: str, *args, **kwargs):
         """
         Default handler for requests where the source type is present in the config but doesn't have
         a corresponding fetch function. If a request gets here then there is a config error, not a
@@ -139,7 +174,7 @@ class ImageSourceFetcher:
         """
         raise HTTPError(status_code=404, reason='Source image not found')
 
-    async def _fetch_trusted_web_image(self, image, regex):
+    async def _fetch_trusted_web_image(self, image: IIIFImage, regex: str):
         """
         Fetch handler for "trusted web" images. This is a mechanism that allows semi-arbitrary URL
         images to be served through this server. Allowing requesters to just use a whole URL as the
@@ -159,7 +194,7 @@ class ImageSourceFetcher:
         else:
             raise HTTPError(status_code=400, reason='Type not matched')
 
-    async def _fetch_web_image(self, image, url):
+    async def _fetch_web_image(self, image: IIIFImage, url: str):
         """
         Fetch handler for web images. The name from the image parameter is used to `format` the URL
         and therefore can be used to complete a URL. This also means that the URL can be complete
@@ -173,40 +208,6 @@ class ImageSourceFetcher:
         if response.code != 200:
             raise HTTPError(status_code=404, reason=f'Source image not found ({response.code})')
 
-        os.makedirs(os.path.dirname(image.source_path), exist_ok=True)
-        with open(os.path.join(image.source_path), 'wb') as f:
+        image.source_path.parent.mkdir(parents=True, exist_ok=True)
+        with image.source_path.open('wb') as f:
             f.write(response.body)
-
-
-class IIIFImage:
-    """
-    This class represents an image identified by a IIIF identifier from a request URL.
-    """
-
-    def __init__(self, identifier, root_source_path, root_cache_path):
-        """
-        :param identifier: the IIIF identifier, this should be in the format type:name
-        :param root_source_path: the root source path for all source images
-        :param root_cache_path: the root cache path for all cache images
-        """
-        if ':' not in identifier:
-            raise HTTPError(status_code=404, reason="Identifier type not specified")
-
-        self.identifier = identifier
-        self.type, self.name = identifier.split(':', 1)
-        self.root_source_path = root_source_path
-        self.root_cache_path = root_cache_path
-
-    @property
-    def source_path(self):
-        return os.path.join(self.root_source_path, self.type, self.name)
-
-    @property
-    def cache_path(self):
-        return os.path.join(self.root_cache_path, self.type, self.name)
-
-    def __eq__(self, other):
-        if isinstance(other, IIIFImage):
-            # we can just use the paths for equivalence as they include everything
-            return self.source_path == other.source_path and self.cache_path == other.cache_path
-        return NotImplemented

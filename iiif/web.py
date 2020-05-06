@@ -8,6 +8,7 @@ from PIL import Image
 from functools import lru_cache
 from itertools import count
 from lru import LRU
+from pathlib import Path
 from tornado.ioloop import IOLoop
 from tornado.web import Application, RequestHandler
 
@@ -38,7 +39,8 @@ class ImageDataHandler(CORSMixin, RequestHandler):
     Request handler for image data requests.
     """
 
-    def initialize(self, config, dispatcher, image_source_fetcher):
+    def initialize(self, config: dict, dispatcher: ImageProcessingDispatcher,
+                   image_source_fetcher: ImageSourceFetcher):
         """
         Inits the handler with the global config, dispatcher object and the image manager.
 
@@ -51,7 +53,7 @@ class ImageDataHandler(CORSMixin, RequestHandler):
         self.dispatcher = dispatcher
         self.image_source_fetcher = image_source_fetcher
 
-    async def get(self, identifier, region, size):
+    async def get(self, identifier: str, region: str, size: str):
         """
         Responds to IIIF image data requests.
 
@@ -68,7 +70,7 @@ class ImageDataHandler(CORSMixin, RequestHandler):
         await self.dispatcher.submit(task)
 
         self.set_header("Content-type", "image/jpeg")
-        with open(task.output_path, 'rb') as f:
+        with task.output_path.open('rb') as f:
             while True:
                 # read the data in chunks of 64KiB
                 data = f.read(65536)
@@ -85,7 +87,8 @@ class ImageInfoHandler(CORSMixin, RequestHandler):
     Request handler for info.json requests.
     """
 
-    def initialize(self, config, info_cache, image_source_fetcher, image_source_sizer):
+    def initialize(self, config: dict, info_cache: LRU, image_source_fetcher: ImageSourceFetcher,
+                   image_source_sizer: ImageSourceSizer):
         """
         Inits the handler with the global config, info cache and info process pool instances.
 
@@ -103,7 +106,7 @@ class ImageInfoHandler(CORSMixin, RequestHandler):
 
     @staticmethod
     @lru_cache(maxsize=1024)
-    def generate_sizes(width, height, min_sizes_size=200):
+    def generate_sizes(width: int, height: int, min_sizes_size: int = 200):
         """
         Produces the sizes array for the given width and height combination. Function results are
         cached.
@@ -126,7 +129,7 @@ class ImageInfoHandler(CORSMixin, RequestHandler):
 
         return sizes
 
-    async def get(self, identifier):
+    async def get(self, identifier: str):
         """
         Responds to IIIF info.json get requests.
 
@@ -170,7 +173,7 @@ class ImageInfoHandler(CORSMixin, RequestHandler):
 
 
 @contextmanager
-def create_application(config):
+def create_application(config: dict):
     """
     Creates a Tornado Application object and yields it then, once the application run comes to an
     end and the context manager regains control, clean up.
@@ -210,10 +213,14 @@ def main():
     """
     Main entry function for the server.
     """
-    # load the config file, it should be in the folder above  this script's location
-    root_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    with open(os.path.join(root_dir, 'config.yml'), 'r') as cf:
+    # load the config file, it should be in the folder above this script's location
+    config_path = Path(__file__).parent.parent / 'config.yml'
+    with config_path.open('rb') as cf:
         config = yaml.safe_load(cf)
+
+    # convert the path config values into Path objects
+    config['source_path'] = Path(config['source_path'])
+    config['cache_path'] = Path(config['cache_path'])
 
     try:
         with create_application(config) as app:
