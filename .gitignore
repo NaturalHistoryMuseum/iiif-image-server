@@ -1,8 +1,6 @@
 .idea
-beetle_images
 *.egg-info
 config.yml
 venv
-image_cache
-uwsgi.ini
 __pycache__
+build/
