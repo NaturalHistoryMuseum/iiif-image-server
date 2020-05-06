@@ -9,9 +9,12 @@ Probably best not to use it for anything else at the moment as it has some hard 
 based on locations of NHM assets and cannot be used generically yet.
 
 ## OS Dependencies
+See `.travis.yml` for dependency install example on Ubuntu 18.04, generally though we need:
+
     - python3.8 (probably works on 3.6+)
     - cffi
     - libjpeg8
+    - libcurl
 
 ## Architecture
 This server is written using Python's asyncio framework and the Tornado web server.
