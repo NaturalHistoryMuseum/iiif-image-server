@@ -1,6 +1,6 @@
 # IIIF Image Server
-[![Travis](https://travis-ci.org/pytest-dev/pytest-asyncio.svg?branch=master)](https://travis-ci.org/pytest-dev/pytest-asyncio.svg?branch=master)
-[![Coveralls](https://coveralls.io/repos/github/NaturalHistoryMuseum/iiif-image-server/badge.svg?branch=master)](https://coveralls.io/github/NaturalHistoryMuseum/iiif-image-server?branch=master)
+[![Travis](https://img.shields.io/travis/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://travis-ci.org/NaturalHistoryMuseum/iiif-image-server)
+[![Coveralls](https://img.shields.io/coveralls/github/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://coveralls.io/github/NaturalHistoryMuseum/iiif-image-server)
 
 This is a IIIF image server designed to work under specific conditions in a pilot being run by the
 Informatics team at the Natural History Museum.
