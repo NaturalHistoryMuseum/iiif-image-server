@@ -8,7 +8,10 @@ before_install:
   - sudo apt-get -y install libturbojpeg0-dev libjpeg-dev
   - sudo apt-get -y install libpcre3 libpcre3-dev
   - sudo apt-get -y install libcurl4-openssl-dev libssl-dev
+  - pip install -U pip
+  - pip install coveralls coverage
 install:
   - pip install .
   - pip install ".[test]"
-script: pytest
+script: coverage run -m pytest
+after_success: coveralls
