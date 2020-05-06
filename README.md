@@ -1,6 +1,7 @@
 # IIIF Image Server
 [![Travis](https://img.shields.io/travis/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://travis-ci.org/NaturalHistoryMuseum/iiif-image-server)
 [![Coveralls](https://img.shields.io/coveralls/github/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://coveralls.io/github/NaturalHistoryMuseum/iiif-image-server)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 This is a IIIF image server designed to work under specific conditions in a pilot being run by the
 Informatics team at the Natural History Museum.
