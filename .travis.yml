@@ -4,7 +4,6 @@ python:
   - 3.8
 before_install:
   - sudo apt-get update
-  - sudo apt-get -y install python3.8-dev
   - sudo apt-get -y install libffi-dev
   - sudo apt-get -y install libturbojpeg0-dev libjpeg-dev
   - sudo apt-get -y install libpcre3 libpcre3-dev
