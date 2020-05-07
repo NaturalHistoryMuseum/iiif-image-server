@@ -43,6 +43,8 @@ See the config section for more information about configuring identifier types a
 
 ## Config
 
+All configuration options are required, there are no defaults.
+
 | Name | Description | Example |
 |----|-----------|-------|
 | `base_url` | The base URL to use in `info.json` responses. This should be the base URL for this server. | `http://10.11.20.12/iiif_images` |
