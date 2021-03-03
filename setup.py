@@ -15,13 +15,15 @@ install_dependencies = [
     'lru-dict~=1.1.6',
     'pillow~=7.1.2',
     'pyyaml~=5.3.1',
-    'tornado~=6.0.4',
+    'aiofiles~=0.6.0',
+    'aiohttp[speedups]~=3.7.4',
+    'fastapi~=0.63.0',
     'pycurl~=7.43.0.5',
+    'uvicorn~=0.13.4',
 ]
 test_dependencies = [
     'pytest~=5.4.1',
     'pytest-asyncio~=0.11.0',
-    'pytest-tornado~=0.8.0',
 ]
 
 setup(

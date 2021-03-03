@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+from asyncio import Future
 from collections import defaultdict, namedtuple
 
+import asyncio
 import io
 import multiprocessing as mp
 import random
 from PIL import Image
+from fastapi import HTTPException
 from jpegtran import JPEGImage
 from lru import LRU
 from multiprocessing.context import Process
 from pathlib import Path
 from threading import Thread
-from tornado.concurrent import Future
-from tornado.ioloop import IOLoop
-from tornado.web import HTTPError
 from typing import Any, Optional
 
 from iiif.image import IIIFImage
@@ -76,7 +76,6 @@ def process_region(image: JPEGImage, region: str) -> JPEGImage:
             # the image is already square, return the whole thing
             return image
     else:
-        # the region parameter
         crop = Crop(*map(int, region.split(',')))
 
     # jpegtran can't handle crops that don't have an origin divisible by 16 therefore we're going to
@@ -130,10 +129,13 @@ def process_size(image: JPEGImage, size: str) -> JPEGImage:
     h = int(h)
 
     if width < w or height < h:
-        raise HTTPError(status_code=400, reason='Size greater than extracted region without '
-                                                'specifying ^')
+        raise HTTPException(400, detail='Size greater than extracted region without specifying ^')
 
-    return image.downscale(w, h)
+    print('doing downscale')
+    i = image.downscale(w, h)
+    print('downscale complete')
+
+    return i
 
 
 def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: mp.Queue,
@@ -172,7 +174,9 @@ def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: m
                 task.output_path.parent.mkdir(parents=True, exist_ok=True)
                 # write the processed image to disk
                 with task.output_path.open('wb') as f:
+                    print('writing image to disk')
                     f.write(image.as_blob())
+                    print('image written to disk')
 
                 # put our worker id, the task and None on the result queue to indicate to the main
                 # process that it's done and we encountered no exceptions
@@ -262,9 +266,9 @@ class ImageProcessingDispatcher:
     """
 
     def __init__(self):
-        # keep a reference to the correct tornado io loop so that we can correctly call task
-        # completion callbacks from the result thread
-        self.loop = IOLoop.current()
+        # keep a reference to the correct asyncio loop so that we can correctly call task completion
+        # callbacks from the result thread
+        self.loop = asyncio.get_event_loop()
         # a dict of the Worker objects we're dispatching the requests to keyed by their worker ids
         self.workers = {}
         # a register of the processed image paths and tornado Event objects indicating whether they
@@ -284,7 +288,7 @@ class ImageProcessingDispatcher:
         main ayncio loop to notify all waiting coroutines.
         """
         for result in iter(self.result_queue.get, None):
-            self.loop.add_callback(self.finish_task, *result)
+            self.loop.call_soon(self.finish_task, *result)
 
     def init_workers(self, worker_count: int, worker_cache_size: int):
         """

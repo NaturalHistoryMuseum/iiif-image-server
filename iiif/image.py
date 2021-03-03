@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+from asyncio import Future
+
+import aiohttp
+import asyncio
+
 import base64
 import functools
 import re
 from PIL import Image
 from concurrent.futures.process import ProcessPoolExecutor
+from fastapi import HTTPException
 from pathlib import Path
-from tornado.concurrent import Future
-from tornado.httpclient import AsyncHTTPClient
-from tornado.ioloop import IOLoop
-from tornado.web import HTTPError
 from typing import Any, Tuple
 
 
@@ -25,7 +27,7 @@ class IIIFImage:
         :param root_cache_path: the root cache path for all cache images
         """
         if ':' not in identifier:
-            raise HTTPError(status_code=404, reason="Identifier type not specified")
+            raise HTTPException(status_code=404, detail="Identifier type not specified")
 
         self.identifier = identifier
         self.type, self.name = identifier.split(':', 1)
@@ -82,7 +84,8 @@ class ImageSourceSizer:
         :param image: the Image object
         :return: a 2-tuple containing the width and the height
         """
-        return await IOLoop.current().run_in_executor(self.pool, self._get_image_size, image)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.pool, self._get_image_size, image)
 
     def stop(self):
         """
@@ -100,16 +103,19 @@ class ImageSourceFetcher:
         """
         :param config: the config
         """
-        # the curl implementation is the fastest and best overall so force its use
-        AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",
-                                  max_clients=config['max_http_fetches'])
-
         self.config = config
+
+        connector = aiohttp.TCPConnector(limit=config['max_http_fetches'])
+        self.http_session = aiohttp.ClientSession(connector=connector)
+
         # a register of the source images and their load status
         self.images = {}
         self.types = {}
         for supported_type, options in self.config['types'].items():
             self.types[supported_type] = (options.pop('source'), options)
+
+    async def stop(self):
+        await self.http_session.close()
 
     async def ensure_source_exists(self, image: IIIFImage):
         """
@@ -122,7 +128,7 @@ class ImageSourceFetcher:
         :param image: the Image object
         """
         if image.type not in self.types:
-            raise HTTPError(status_code=400, reason='Identifier type not supported')
+            raise HTTPException(status_code=400, detail='Identifier type not supported')
 
         if image.identifier in self.images:
             # the source file has either already been retrieved or is currently being retrieved,
@@ -162,7 +168,7 @@ class ImageSourceFetcher:
         :param source_type: the source type that didn't have a matching fetch function
         :raise: an HTTPError
         """
-        raise HTTPError(status_code=500, reason=f'Identifier type {source_type} not supported')
+        raise HTTPException(status_code=500, detail=f'Identifier type {source_type} not supported')
 
     async def _fetch_disk_image(self, *args, **kwargs):
         """
@@ -172,7 +178,7 @@ class ImageSourceFetcher:
 
         :raise: an HTTPError
         """
-        raise HTTPError(status_code=404, reason='Source image not found')
+        raise HTTPException(status_code=404, detail='Source image not found')
 
     async def _fetch_trusted_web_image(self, image: IIIFImage, regex: str):
         """
@@ -192,7 +198,7 @@ class ImageSourceFetcher:
         if re.compile(regex).match(url):
             await self._fetch_web_image(image, url)
         else:
-            raise HTTPError(status_code=400, reason='Type not matched')
+            raise HTTPException(status_code=400, detail='Type not matched')
 
     async def _fetch_web_image(self, image: IIIFImage, url: str):
         """
@@ -203,11 +209,16 @@ class ImageSourceFetcher:
         :param image: the IIIFImage object
         :param url: the URL to add the name to and then fetch
         """
-        http_client = AsyncHTTPClient()
-        response = await http_client.fetch(url.format(name=image.name), raise_error=False)
-        if response.code != 200:
-            raise HTTPError(status_code=404, reason=f'Source image not found ({response.code})')
+        print(f'Fetching {url.format(name=image.name)}')
+        async with self.http_session.get(url.format(name=image.name)) as response:
+            if response.status != 200:
+                raise HTTPException(status_code=404,
+                                    detail=f'Source image not found ({response.status})')
 
-        image.source_path.parent.mkdir(parents=True, exist_ok=True)
-        with image.source_path.open('wb') as f:
-            f.write(response.body)
+            image.source_path.parent.mkdir(parents=True, exist_ok=True)
+            with image.source_path.open('wb') as f:
+                while True:
+                    chunk = await response.content.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
