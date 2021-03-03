@@ -126,8 +126,12 @@ def generate_sizes(width: int, height: int, min_sizes_size: int = 200):
 
 @app.get("/status")
 def status():
-    return {'status': True}
+    """
+    Just a useful endpoint to show that the server is up and running.
 
+    :return: a dict that says everything is ok, how reassuring
+    """
+    return {'status': ':)'}
 
 @app.get("/{identifier:path}/info.json")
 async def get_image_info(identifier: str):
