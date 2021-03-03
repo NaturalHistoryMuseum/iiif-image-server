@@ -31,6 +31,10 @@ app.add_middleware(
 
 @app.on_event('startup')
 def on_startup():
+    """
+    This is run on startup and just sets a series of objects on the app state so that they can be
+    accessed during requests.
+    """
     # load the config file, it should be in the folder above this script's location
     config_path = Path(__file__).parent.parent / 'config.yml'
     with config_path.open('rb') as cf:
@@ -53,6 +57,7 @@ def on_startup():
     # initialise the process pool that backs the dispatcher
     dispatcher.init_workers(config['image_pool_size'], config['image_cache_size_per_process'])
 
+    # add all these objects to the app state so that they can be accessed during requests
     app.state.config = config
     app.state.dispatcher = dispatcher
     app.state.image_source_sizer = image_source_sizer
@@ -62,6 +67,11 @@ def on_startup():
 
 @app.on_event('shutdown')
 async def on_shutdown():
+    """
+    This is run on shutdown and makes sure that all of the objects we added to the app state are
+    closed properly.
+    """
+    # make sure everything gets shutdown properly
     await app.state.image_source_fetcher.stop()
     app.state.image_source_sizer.stop()
     app.state.dispatcher.stop()
