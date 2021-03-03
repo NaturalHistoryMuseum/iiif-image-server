@@ -19,7 +19,7 @@ install_dependencies = [
     'aiohttp[speedups]~=3.7.4',
     'fastapi~=0.63.0',
     'pycurl~=7.43.0.5',
-    'uvicorn~=0.13.4',
+    'uvicorn[standard]~=0.13.4',
 ]
 test_dependencies = [
     'pytest~=5.4.1',
