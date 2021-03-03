@@ -135,7 +135,7 @@ async def get_image_info(identifier: str):
 
     # if the image's info.json is not in the cache, we need to generate it and cache it
     if image.name not in app.state.info_cache:
-        # we need the image source file to exist on disk so that we can work on it
+        # we need the image source file to exist on disk so that we can get the width/height
         await app.state.image_source_fetcher.ensure_source_exists(image)
 
         width, height = await app.state.image_source_sizer.get_image_size(image)
@@ -164,7 +164,7 @@ async def get_image_info(identifier: str):
             'maxHeight': height,
         }
 
-    # serve up the info.json (tornado automatically writes a dict out as JSON with headers etc)
+    # serve up the info.json (fastapi automatically writes a dict out as JSON with headers etc)
     return app.state.info_cache[image.name]
 
 
