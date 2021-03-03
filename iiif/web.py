@@ -77,7 +77,7 @@ async def on_shutdown():
     app.state.dispatcher.stop()
 
 
-@lru_cache(maxsize=1024)
+@lru_cache(maxsize=65536)
 def generate_sizes(width: int, height: int, min_sizes_size: int = 200):
     """
     Produces the sizes array for the given width and height combination. Function results are
