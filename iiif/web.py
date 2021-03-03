@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
+import os
 import yaml
 from PIL import Image
 from fastapi import FastAPI
@@ -29,20 +30,41 @@ app.add_middleware(
 )
 
 
-@app.on_event('startup')
-def on_startup():
+def load_config() -> dict:
     """
-    This is run on startup and just sets a series of objects on the app state so that they can be
-    accessed during requests.
+    Load the configuration and return it as a dict. The configuration must be a yaml file and will
+    be loaded from either the path specified by the IIIF_CONFIG env var or by looking for the file
+    in the folder above the location of this script. The env var takes priority.
+
+    :return: the configuration dict
     """
-    # load the config file, it should be in the folder above this script's location
-    config_path = Path(__file__).parent.parent / 'config.yml'
+    env_path = os.environ.get('IIIF_CONFIG')
+    if env_path is not None:
+        config_path = Path(env_path)
+    else:
+        # no env var, just load the config file from the folder above this script's location
+        config_path = Path(__file__).parent.parent / 'config.yml'
+
+    if not config_path.exists():
+        raise Exception(f'The config path "{config_path}" does not exist :(')
+
     with config_path.open('rb') as cf:
         config = yaml.safe_load(cf)
 
     # convert the path config values into Path objects
     config['source_path'] = Path(config['source_path'])
     config['cache_path'] = Path(config['cache_path'])
+
+    return config
+
+
+@app.on_event('startup')
+def on_startup():
+    """
+    This is run on startup and just sets a series of objects on the app state so that they can be
+    accessed during requests.
+    """
+    config = load_config()
 
     # create the dispatcher which controls how image data requests are handled
     dispatcher = ImageProcessingDispatcher()
