@@ -1,13 +1,14 @@
+from asyncio import Future
+
 import hashlib
 import io
 import multiprocessing as mp
 import os
 import pytest
 from PIL import Image
+from fastapi import HTTPException
 from queue import Queue
-from tornado.concurrent import Future
-from tornado.web import HTTPError
-from unittest.mock import patch, MagicMock, call, PropertyMock
+from unittest.mock import patch, MagicMock, call
 
 from iiif.processing import Task, process_image_requests, Worker, ImageProcessingDispatcher
 from tests.utils import create_image
@@ -17,8 +18,25 @@ default_image_height = 5000
 
 
 @pytest.fixture
-def image(config):
+def source_path(config):
     return create_image(config, default_image_width, default_image_height)
+
+
+@pytest.fixture
+def cache_path(config):
+    return config.cache_path / 'test' / 'image'
+
+
+@pytest.fixture
+def task_queue():
+    # a real queue but not a multiprocessing one
+    return Queue()
+
+
+@pytest.fixture
+def result_queue():
+    # a real queue but not a multiprocessing one
+    return Queue()
 
 
 def check_size(task, width, height):
@@ -27,8 +45,8 @@ def check_size(task, width, height):
         assert image.height == height
 
 
-def check_result(task, op_function):
-    with Image.open(task.image.source_path) as img:
+def check_result(task: Task, op_function):
+    with Image.open(task.source_path) as img:
         cropped_source = io.BytesIO()
         img = op_function(img)
         img.save(cropped_source, format='jpeg')
@@ -39,24 +57,7 @@ def check_result(task, op_function):
                     hashlib.sha256(cropped_source.read()).digest())
 
 
-class TestProcessImageRequests:
-    """
-    This base class just provides a couple of fixtures specific to these tests, namely a real Queue
-    but not a multiprocessing Queue as is actually used but a standard one.
-    """
-
-    @pytest.fixture
-    def task_queue(self):
-        # a real queue but not a multiprocessing one
-        return Queue()
-
-    @pytest.fixture
-    def result_queue(self):
-        # a real queue but not a multiprocessing one
-        return Queue()
-
-
-class TestProcessImageRequestsLevel0(TestProcessImageRequests):
+class TestProcessImageRequestsLevel0:
     """
     Test the process_image_requests function for IIIF Image API v3 level 0 compliance.
     See: https://iiif.io/api/image/3.0/compliance/.
@@ -65,9 +66,9 @@ class TestProcessImageRequestsLevel0(TestProcessImageRequests):
     other than jpg and therefore we don't need to test for them.
     """
 
-    def test(self, image, task_queue, result_queue):
+    def test(self, source_path, cache_path, task_queue, result_queue):
         # this is all that is expected at level 0
-        task = Task(image, 'full', 'max')
+        task = Task(source_path, cache_path, 'full', 'max')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -80,15 +81,15 @@ class TestProcessImageRequestsLevel0(TestProcessImageRequests):
         check_result(task, lambda img: img)
 
 
-class TestProcessImageRequestsLevel1(TestProcessImageRequests):
+class TestProcessImageRequestsLevel1:
     """
     Test the process_image_requests function for IIIF Image API v3 level 1 compliance.
     See: https://iiif.io/api/image/3.0/compliance/.
     """
 
-    def test_regionByPx_jpegtran(self, image, task_queue, result_queue):
+    def test_regionByPx_jpegtran(self, source_path, cache_path, task_queue, result_queue):
         x, y, w, h = 0, 0, 1024, 1024
-        task = Task(image, f'{x},{y},{w},{h}', 'max')
+        task = Task(source_path, cache_path, f'{x},{y},{w},{h}', 'max')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -100,9 +101,9 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, 1024, 1024)
         check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
 
-    def test_regionByPx_any(self, image, task_queue, result_queue):
+    def test_regionByPx_any(self, source_path, cache_path, task_queue, result_queue):
         x, y, w, h = 6, 191, 1002, 1053
-        task = Task(image, f'{x},{y},{w},{h}', 'max')
+        task = Task(source_path, cache_path, f'{x},{y},{w},{h}', 'max')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -114,10 +115,11 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, 1002, 1053)
         check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
 
-    def test_regionSquare_a_square(self, config, task_queue, result_queue):
+    def test_regionSquare_a_square(self, config, cache_path, task_queue, result_queue):
         width = 500
         height = 500
-        task = Task(create_image(config, width, height), 'square', 'max')
+        source = create_image(config, width, height)
+        task = Task(source, cache_path, 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -127,10 +129,11 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, width, height)
         check_result(task, lambda img: img)
 
-    def test_regionSquare_a_portrait_jpegtran(self, config, task_queue, result_queue):
+    def test_regionSquare_a_portrait_jpegtran(self, config, cache_path, task_queue, result_queue):
         width = 512
         height = 768
-        task = Task(create_image(config, width, height), 'square', 'max')
+        source = create_image(config, width, height)
+        task = Task(source, cache_path, 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -140,10 +143,11 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, width, width)
         check_result(task, lambda img: img.crop((0, 128, 512, 640)))
 
-    def test_regionSquare_a_landscape_jpegtran(self, config, task_queue, result_queue):
+    def test_regionSquare_a_landscape_jpegtran(self, config, cache_path, task_queue, result_queue):
         width = 768
         height = 512
-        task = Task(create_image(config, width, height), 'square', 'max')
+        source = create_image(config, width, height)
+        task = Task(source, cache_path, 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -153,10 +157,11 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, height, height)
         check_result(task, lambda img: img.crop((128, 0, 640, 512)))
 
-    def test_regionSquare_a_portrait_any(self, config, task_queue, result_queue):
+    def test_regionSquare_a_portrait_any(self, config, cache_path, task_queue, result_queue):
         width = 500
         height = 700
-        task = Task(create_image(config, width, height), 'square', 'max')
+        source = create_image(config, width, height)
+        task = Task(source, cache_path, 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -166,10 +171,11 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, width, width)
         check_result(task, lambda img: img.crop((0, 100, 500, 600)))
 
-    def test_regionSquare_a_landscape_any(self, config, task_queue, result_queue):
+    def test_regionSquare_a_landscape_any(self, config, cache_path, task_queue, result_queue):
         width = 700
         height = 500
-        task = Task(create_image(config, width, height), 'square', 'max')
+        source = create_image(config, width, height)
+        task = Task(source, cache_path, 'square', 'max')
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -179,10 +185,10 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, height, height)
         check_result(task, lambda img: img.crop((100, 0, 600, 500)))
 
-    def test_sizeByW(self, image, task_queue, result_queue):
+    def test_sizeByW(self, source_path, cache_path, task_queue, result_queue):
         width = 512
         expected_height = int(default_image_height * width / default_image_width)
-        task = Task(image, 'full', f'{width},')
+        task = Task(source_path, cache_path, 'full', f'{width},')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -194,10 +200,10 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, width, expected_height)
         check_result(task, lambda img: img.resize((width, expected_height)))
 
-    def test_sizeByH(self, image, task_queue, result_queue):
+    def test_sizeByH(self, source_path, cache_path, task_queue, result_queue):
         height = 512
         expected_width = int(default_image_width * height / default_image_height)
-        task = Task(image, 'full', f',{height}')
+        task = Task(source_path, cache_path, 'full', f',{height}')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -209,10 +215,10 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_size(task, expected_width, height)
         check_result(task, lambda img: img.resize((expected_width, height)))
 
-    def test_sizeByWh(self, image, task_queue, result_queue):
+    def test_sizeByWh(self, source_path, cache_path, task_queue, result_queue):
         width = 400
         height = 600
-        task = Task(image, 'full', f'{width},{height}')
+        task = Task(source_path, cache_path, 'full', f'{width},{height}')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -225,11 +231,11 @@ class TestProcessImageRequestsLevel1(TestProcessImageRequests):
         check_result(task, lambda img: img.resize((width, height)))
 
 
-class TestProcessImageRequestsMisc(TestProcessImageRequests):
+class TestProcessImageRequestsMisc:
 
-    def test_region_and_size_precise(self, image, task_queue, result_queue):
+    def test_region_and_size_precise(self, source_path, cache_path, task_queue, result_queue):
         # simple check to make sure region and size play nicely together
-        task = Task(image, '100,200,600,891', '256,401')
+        task = Task(source_path, cache_path, '100,200,600,891', '256,401')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -241,12 +247,13 @@ class TestProcessImageRequestsMisc(TestProcessImageRequests):
         check_size(task, 256, 401)
         check_result(task, lambda img: img.crop((100, 200, 600, 891)).resize((256, 401)))
 
-    def test_region_and_size_inferred(self, config, task_queue, result_queue):
+    def test_region_and_size_inferred(self, config, cache_path, task_queue, result_queue):
         # check to make sure region and size play nicely when they're both relying on image
         # dimension ratios
         width = 500
         height = 700
-        task = Task(create_image(config, width, height), 'square', ',400')
+        source = create_image(config, width, height)
+        task = Task(source, cache_path, 'square', ',400')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -258,8 +265,9 @@ class TestProcessImageRequestsMisc(TestProcessImageRequests):
         check_size(task, 400, 400)
         check_result(task, lambda img: img.crop((0, 100, 500, 600)).resize((400, 400)))
 
-    def test_upscale_errors_when_not_specified(self, image, task_queue, result_queue):
-        task = Task(image, '0,0,400,400', '500,500')
+    def test_upscale_errors_when_not_specified(self, source_path, cache_path, task_queue,
+                                               result_queue):
+        task = Task(source_path, cache_path, '0,0,400,400', '500,500')
         task_queue.put(task)
         task_queue.put(None)
 
@@ -269,9 +277,9 @@ class TestProcessImageRequestsMisc(TestProcessImageRequests):
         worker_id, result_task, exception = result_queue.get()
         assert worker_id == 0
         assert result_task == task
-        assert isinstance(exception, HTTPError)
+        assert isinstance(exception, HTTPException)
         assert exception.status_code == 400
-        assert exception.reason == 'Size greater than extracted region without specifying ^'
+        assert exception.detail == 'Size greater than extracted region without specifying ^'
 
 
 class TestWorker:
@@ -283,8 +291,8 @@ class TestWorker:
         return worker
 
     @pytest.fixture
-    def task(self, image):
-        return Task(image, 'full', 'max')
+    def task(self, source_path, cache_path):
+        return Task(source_path, cache_path, 'full', 'max')
 
     @pytest.fixture
     def result_queue(self):
@@ -296,7 +304,7 @@ class TestWorker:
         worker.add(task)
 
         assert worker.queue_size == 1
-        assert task.image.source_path in worker.predicted_cache
+        assert task.source_path in worker.predicted_cache
         assert worker.task_queue.qsize() == 1
 
     def test_done(self, worker, task):
@@ -315,15 +323,19 @@ class TestWorker:
     def test_is_warm_for(self, config, result_queue):
         worker = Worker(0, result_queue, 2)
 
-        image1 = create_image(config, 100, 200, identifier='test:image1')
-        image2 = create_image(config, 100, 200, identifier='test:image2')
-        image3 = create_image(config, 100, 200, identifier='test:image3')
-        image4 = create_image(config, 100, 200, identifier='test:image4')
+        image1_source = create_image(config, 100, 200, profile='test', name='image1')
+        image2_source = create_image(config, 100, 200, profile='test', name='image2')
+        image3_source = create_image(config, 100, 200, profile='test', name='image3')
+        image4_source = create_image(config, 100, 200, profile='test', name='image4')
+        image1_cache = config.cache_path / 'test' / 'image1'
+        image2_cache = config.cache_path / 'test' / 'image2'
+        image3_cache = config.cache_path / 'test' / 'image3'
+        image4_cache = config.cache_path / 'test' / 'image4'
 
-        task1 = Task(image1, 'full', 'max')
-        task2 = Task(image2, 'full', 'max')
-        task3 = Task(image3, 'full', 'max')
-        task4 = Task(image4, 'full', 'max')
+        task1 = Task(image1_source, image1_cache, 'full', 'max')
+        task2 = Task(image2_source, image2_cache, 'full', 'max')
+        task3 = Task(image3_source, image3_cache, 'full', 'max')
+        task4 = Task(image4_source, image4_cache, 'full', 'max')
 
         worker.add(task1)
         assert any(worker.is_warm_for(task) for task in (task1,))
@@ -343,10 +355,10 @@ class TestWorker:
 
         worker.stop()
 
-    def test_result_queue_is_used(self, config, result_queue):
+    def test_result_queue_is_used(self, config, cache_path, result_queue):
         worker = Worker(0, result_queue, 2)
-        image = create_image(config, 100, 200)
-        task = Task(image, 'full', 'max')
+        source_path = create_image(config, 100, 200)
+        task = Task(source_path, cache_path, 'full', 'max')
 
         worker.add(task)
         worker.stop()
@@ -358,38 +370,47 @@ class TestWorker:
 class TestTask:
 
     def test_equality(self, config):
-        image1 = create_image(config, 100, 200, identifier='test:image1')
-        image2 = create_image(config, 100, 200, identifier='test:image2')
+        image1_source = create_image(config, 100, 200, profile='test', name='image1')
+        image2_source = create_image(config, 100, 200, profile='test', name='image2')
+        image1_cache = config.cache_path / 'test' / 'image1'
+        image2_cache = config.cache_path / 'test' / 'image2'
 
-        assert Task(image1, 'full', 'max') == Task(image1, 'full', 'max')
-        assert Task(image1, 'full', 'max') != Task(image2, 'full', 'max')
-        assert Task(image2, 'full', 'max') != Task(image2, 'full', '256,')
-        assert Task(image2, 'square', 'max') != Task(image2, 'full', 'max')
+        assert Task(image1_source, image1_cache, 'full', 'max') == Task(image1_source, image1_cache,
+                                                                        'full', 'max')
+        assert Task(image1_source, image1_cache, 'full', 'max') != Task(image2_source, image2_cache,
+                                                                        'full', 'max')
+        assert Task(image2_source, image2_cache, 'full', 'max') != Task(image2_source, image2_cache,
+                                                                        'full', '256,')
+        assert Task(image2_source, image2_cache, 'square', 'max') != Task(image2_source,
+                                                                          image2_cache, 'full',
+                                                                          'max')
         # semantically these are the same but we don't recognise it
-        assert Task(image1, 'full', 'max') != Task(image1, '0,0,100,200', 'max')
-        assert Task(image1, 'full', 'max') != Task(image1, 'full', '100,200')
+        assert Task(image1_source, image1_cache, 'full', 'max') != Task(image1_source, image1_cache,
+                                                                        '0,0,100,200', 'max')
+        assert Task(image1_source, image1_cache, 'full', 'max') != Task(image1_source, image1_cache,
+                                                                        'full', '100,200')
+
+
+@pytest.fixture
+def dispatcher(event_loop):
+    with patch('iiif.processing.asyncio.get_event_loop', MagicMock(return_value=event_loop)):
+        dispatcher = ImageProcessingDispatcher()
+        yield dispatcher
+        dispatcher.stop()
 
 
 class TestImageProcessingDispatcher:
 
-    @pytest.fixture
-    def dispatcher(self, event_loop):
-        with patch('iiif.processing.IOLoop', MagicMock(current=MagicMock(return_value=event_loop))):
-            dispatcher = ImageProcessingDispatcher()
-            yield dispatcher
-            dispatcher.stop()
-
     def test_result_listener(self):
-        ioloop_mock = MagicMock()
-        with patch('iiif.processing.IOLoop', ioloop_mock):
+        mock_loop = MagicMock()
+        with patch('iiif.processing.asyncio.get_event_loop', MagicMock(return_value=mock_loop)):
             dispatcher = ImageProcessingDispatcher()
             mock_result = ('some', 'mock', 'data')
             dispatcher.result_queue.put(mock_result)
             dispatcher.result_queue.put(None)
             dispatcher.result_thread.join()
 
-        ioloop_mock.current().add_callback.assert_called_once_with(dispatcher.finish_task,
-                                                                   *mock_result)
+        mock_loop.call_soon_threadsafe.assert_called_once_with(dispatcher.finish_task, *mock_result)
 
     def test_init_workers(self, dispatcher):
         worker_mock = MagicMock()
@@ -418,9 +439,10 @@ class TestImageProcessingDispatcher:
         assert dispatcher.result_queue.empty()
         assert not dispatcher.result_thread.is_alive()
 
-    def test_finish_task_success(self, dispatcher, config):
+    def test_finish_task_success(self, dispatcher, config, cache_path):
         worker_id = 0
-        task = Task(create_image(config, 100, 200), 'full', 'max')
+        source = create_image(config, 100, 200)
+        task = Task(source, cache_path, 'full', 'max')
         mock_future = MagicMock()
         mock_worker = MagicMock()
         dispatcher.workers[worker_id] = mock_worker
@@ -432,9 +454,10 @@ class TestImageProcessingDispatcher:
         mock_future.set_result.called_once_with(None)
         mock_future.set_exception.assert_not_called()
 
-    def test_finish_task_failure(self, dispatcher, config):
+    def test_finish_task_failure(self, dispatcher, config, cache_path):
         worker_id = 0
-        task = Task(create_image(config, 100, 200), 'full', 'max')
+        source = create_image(config, 100, 200)
+        task = Task(source, cache_path, 'full', 'max')
         mock_future = MagicMock()
         mock_worker = MagicMock()
         mock_exception = MagicMock()
@@ -614,8 +637,10 @@ class TestImageProcessingDispatcher:
         mock_choice.assert_called_once_with([worker0, worker1])
 
     @pytest.mark.asyncio
-    async def test_submit_already_in_progress_success(self, event_loop, dispatcher, config):
-        image_task = Task(create_image(config, 100, 100), 'full', 'max')
+    async def test_submit_already_in_progress_success(self, event_loop, dispatcher, config,
+                                                      cache_path):
+        source = create_image(config, 100, 100)
+        image_task = Task(source, cache_path, 'full', 'max')
 
         # create a future to mimic what would happen if a request for this task had already been
         # submitted
@@ -633,8 +658,10 @@ class TestImageProcessingDispatcher:
         assert task.done()
 
     @pytest.mark.asyncio
-    async def test_submit_already_in_progress_failure(self, event_loop, dispatcher, config):
-        image_task = Task(create_image(config, 100, 100), 'full', 'max')
+    async def test_submit_already_in_progress_failure(self, event_loop, dispatcher, config,
+                                                      cache_path):
+        source = create_image(config, 100, 100)
+        image_task = Task(source, cache_path, 'full', 'max')
 
         # create a future to mimic what would happen if a request for this task had already been
         # submitted
@@ -654,8 +681,10 @@ class TestImageProcessingDispatcher:
         assert e.value == mock_exception
 
     @pytest.mark.asyncio
-    async def test_submit_already_finished_success(self, event_loop, dispatcher, config):
-        image_task = Task(create_image(config, 100, 100), 'full', 'max')
+    async def test_submit_already_finished_success(self, event_loop, dispatcher, config,
+                                                   cache_path):
+        source = create_image(config, 100, 100)
+        image_task = Task(source, cache_path, 'full', 'max')
 
         # create a future to mimic what would happen if a request for this task had already been
         # submitted
@@ -671,8 +700,9 @@ class TestImageProcessingDispatcher:
         assert task.done()
 
     @pytest.mark.asyncio
-    async def test_submit_already_finished_failure(self, dispatcher, config):
-        image_task = Task(create_image(config, 100, 100), 'full', 'max')
+    async def test_submit_already_finished_failure(self, dispatcher, config, cache_path):
+        source = create_image(config, 100, 100)
+        image_task = Task(source, cache_path, 'full', 'max')
 
         # create a future to mimic what would happen if a request for this task had already been
         # submitted
@@ -687,8 +717,9 @@ class TestImageProcessingDispatcher:
         assert e.value == mock_exception
 
     @pytest.mark.asyncio
-    async def test_submit_path_exists(self, dispatcher, config):
-        image_task = Task(create_image(config, 100, 100), 'full', 'max')
+    async def test_submit_path_exists(self, dispatcher, config, cache_path):
+        source = create_image(config, 100, 100)
+        image_task = Task(source, cache_path, 'full', 'max')
 
         # make sure the path exists and write some data there
         image_task.output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -704,8 +735,9 @@ class TestImageProcessingDispatcher:
         mock_worker.add.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_submit_path_does_not_exist(self, event_loop, dispatcher, config):
-        image_task = Task(create_image(config, 100, 100), 'full', 'max')
+    async def test_submit_path_does_not_exist(self, event_loop, dispatcher, config, cache_path):
+        source = create_image(config, 100, 100)
+        image_task = Task(source, cache_path, 'full', 'max')
 
         def mock_add(t):
             # just immediately complete the task

@@ -11,25 +11,32 @@ with open("README.md", "r") as readme_file:
 jpegtran_url = 'git+https://github.com/jbaiter/jpegtran-cffi.git@70928eb#egg=jpegtran-cffi'
 
 install_dependencies = [
-    f'jpegtran-cffi @ {jpegtran_url}',
-    'lru-dict~=1.1.6',
-    'pillow~=7.1.2',
-    'pyyaml~=5.3.1',
+    'aiocron~=1.4',
     'aiofiles~=0.6.0',
     'aiohttp[speedups]~=3.7.4',
+    'aiozipstream~=0.4',
+    'cffi~=1.14.5',
+    'elasticsearch-dsl>=6.0.0,<7.0.0',
     'fastapi~=0.63.0',
-    'pycurl~=7.43.0.5',
+    'humanize~=3.4.1',
+    f'jpegtran-cffi @ {jpegtran_url}',
+    'lru-dict~=1.1.7',
+    'orjson~=3.5.2',
+    'pillow~=8.2.0',
+    'pyyaml~=5.4.1',
     'uvicorn[standard]~=0.13.4',
 ]
 test_dependencies = [
     'pytest~=5.4.1',
     'pytest-asyncio~=0.11.0',
+    'pytest-cov~=2.11.1',
+    'requests~=2.25.1',
 ]
 
 setup(
     name="iiif-image-server",
     version='0.0.1',
-    author='Josh Humphries',
+    author='Natural History Museum',
     author_email='data@nhm.ac.uk',
     description="A simple IIIF server that simply works for the V-Factor beetle drawer pilot",
     long_description=readme,

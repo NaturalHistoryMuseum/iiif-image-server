@@ -1,22 +1,18 @@
 import pytest
 
+from iiif.config import Config
 
-# global config fixture
+
 @pytest.fixture
-def config(tmp_path, base_url):
-    return {
-        'base_url': base_url,
-        'cache_path': tmp_path / 'cache',
-        'source_path': tmp_path / 'source',
-        'min_sizes_size': 200,
-        'size_pool_size': 1,
-        'image_pool_size': 1,
-        'info_cache_size': 1,
-        'image_cache_size_per_process': 1,
-        'max_http_fetches': 1,
-        'types': {
+def config(tmp_path):
+    return Config(
+        base_url='http://localhost',
+        source_path=tmp_path / 'source',
+        cache_path=tmp_path / 'cache',
+        profiles={
             'test': {
-                'source': 'disk',
+                'type': 'disk',
+                'rights': 'http://creativecommons.org/licenses/by/4.0/'
             }
         }
-    }
+    )

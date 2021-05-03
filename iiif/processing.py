@@ -16,7 +16,7 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, Optional
 
-from iiif.image import IIIFImage
+from iiif.utils import parse_size
 
 Crop = namedtuple('Crop', ('x', 'y', 'w', 'h'))
 
@@ -26,26 +26,20 @@ class Task:
     Class representing an image processing task as defined by a IIIF based request.
     """
 
-    def __init__(self, image: IIIFImage, region: str, size: str):
+    def __init__(self, source_path: Path, output_path: Path, region: str, size: str):
         """
-        :param image: the Image object to work on
         :param region: the IIIF region request parameter
         :param size: the IIIF size request parameter
         """
-        self.image = image
+        self.source_path = source_path
+        self.output_path = output_path
         self.region = region
         self.size = size
 
-    @property
-    def output_path(self) -> Path:
-        # the output path is formed by using the image's cache path and then each part of the
-        # request as a folder in the path
-        return self.image.cache_path / self.region / f'{self.size}.jpg'
-
     def __eq__(self, other):
         if isinstance(other, Task):
-            # we can just use the output path for equivalence as it includes the region and size
-            return self.image == other.image and self.output_path == other.output_path
+            return self.source_path == other.source_path and self.region == other.region and \
+                   self.size == other.size
         return NotImplemented
 
 
@@ -113,29 +107,18 @@ def process_size(image: JPEGImage, size: str) -> JPEGImage:
     :param size: the IIIF size parameter
     :return: a jpegtran JPEGImage object
     """
-    if size == 'max':
+    # cache these dimensions as jpegtran has to work to get them
+    width, height = image.width, image.height
+
+    target_width, target_height = parse_size(size, width, height)
+
+    if size == 'max' or (target_width == width and target_height == height):
         return image
 
-    width = image.width
-    height = image.height
-
-    w, h = (float(v) if v != '' else v for v in size.split(','))
-    if h == '':
-        h = height * w / width
-    elif w == '':
-        w = width * h / height
-
-    w = int(w)
-    h = int(h)
-
-    if width < w or height < h:
+    if width < target_width or height < target_height:
         raise HTTPException(400, detail='Size greater than extracted region without specifying ^')
 
-    print('doing downscale')
-    i = image.downscale(w, h)
-    print('downscale complete')
-
-    return i
+    return image.downscale(target_width, target_height)
 
 
 def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: mp.Queue,
@@ -161,11 +144,11 @@ def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: m
         # wait for tasks until we get a sentinel (in this case None)
         for task in iter(task_queue.get, None):
             try:
-                if task.image.name not in image_cache:
+                if task.source_path not in image_cache:
                     # the JPEGImage init function reads the entire source file into memory
-                    image_cache[task.image.name] = JPEGImage(task.image.source_path)
+                    image_cache[task.source_path] = JPEGImage(task.source_path)
 
-                image = image_cache[task.image.name]
+                image = image_cache[task.source_path]
 
                 image = process_region(image, task.region)
                 image = process_size(image, task.size)
@@ -174,9 +157,7 @@ def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: m
                 task.output_path.parent.mkdir(parents=True, exist_ok=True)
                 # write the processed image to disk
                 with task.output_path.open('wb') as f:
-                    print('writing image to disk')
                     f.write(image.as_blob())
-                    print('image written to disk')
 
                 # put our worker id, the task and None on the result queue to indicate to the main
                 # process that it's done and we encountered no exceptions
@@ -226,7 +207,7 @@ class Worker:
         :param task: the Task object
         """
         self.queue_size += 1
-        self.predicted_cache[task.image.source_path] = True
+        self.predicted_cache[task.source_path] = True
         # this will almost always be instantaneous but does have the chance to block up the entire
         # asyncio thread
         self.task_queue.put(task)
@@ -257,7 +238,7 @@ class Worker:
         :param task: the task
         :return: True if the source path is warm on this worker or False if not
         """
-        return task.image.source_path in self.predicted_cache
+        return task.source_path in self.predicted_cache
 
 
 class ImageProcessingDispatcher:
@@ -288,7 +269,7 @@ class ImageProcessingDispatcher:
         main ayncio loop to notify all waiting coroutines.
         """
         for result in iter(self.result_queue.get, None):
-            self.loop.call_soon(self.finish_task, *result)
+            self.loop.call_soon_threadsafe(self.finish_task, *result)
 
     def init_workers(self, worker_count: int, worker_cache_size: int):
         """
@@ -388,3 +369,16 @@ class ImageProcessingDispatcher:
             worker.stop()
         self.result_queue.put(None)
         self.result_thread.join()
+
+    def get_status(self) -> dict:
+        """
+        Returns some basic stats info as a dict.
+
+        :return: a dict of stats
+        """
+        return {
+            'results_queue_size': self.result_queue.qsize(),
+            'worker_queue_sizes': {
+                worker.worker_id: worker.queue_size for worker in self.workers.values()
+            }
+        }
