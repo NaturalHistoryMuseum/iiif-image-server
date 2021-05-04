@@ -326,8 +326,23 @@ class MSSProfile(AbstractProfile):
         self.clean_up_cron = aiocron.crontab('0 * * * *', func=self.clean_up)
 
     async def clean_up(self) -> int:
+        """
+        Call this function to clean up cached data for images that shouldn't be accessible any more.
+        This could be called on the same basis as the data importer but instead we simplify and call
+        it way more, i.e. every hour (see the clean_up_cron attr defined above).
+
+        Cached image data, source image data, image info metadata and cached info.json dicts are all
+        removed if an image is no longer accessible.
+
+        :return: the number of images that had data removed
+        """
         removed = 0
-        names = {path.name for path in chain(self.cache_path.iterdir(), self.source_path.iterdir())}
+        # use the cache dir, source dir and info.json cache as sources for the names to remove. We
+        # could also use the fetch runner but given that we're using the source dir already and
+        # that's where the fetch runner writes to it seems unnecessary
+        name_sources = chain(self.cache_path.iterdir(), self.source_path.iterdir(),
+                             self.info_json_cache.keys())
+        names = {path.name for path in name_sources}
         for name in names:
             doc = await self.get_mss_doc(name, refresh=True)
             if doc is None:
