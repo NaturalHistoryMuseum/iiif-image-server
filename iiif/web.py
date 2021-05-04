@@ -180,7 +180,7 @@ async def zip_originals(names: str, stop_on_error: bool = True,
     chunk_size: int = app.state.config.download_chunk_size
     max_files: int = app.state.config.download_max_files
 
-    names = [name.strip() for name in names.split(',')]
+    names = {name.strip() for name in names.split(',')}
     if len(names) > max_files:
         raise too_many_images(max_files)
 
