@@ -14,12 +14,14 @@ from concurrent.futures.process import ProcessPoolExecutor
 from contextlib import AsyncExitStack
 from elasticsearch_dsl import Search
 from itertools import cycle, chain
+from lru import LRU
 from pathlib import Path
-from typing import Tuple, List, Optional, Any
+from typing import Tuple, List, Optional, Any, Union
 from urllib.parse import quote
 
 from iiif.config import Config, registry
-from iiif.utils import OnceRunner, get_path_stats, convert_image, get_size, get_mss_base_url_path
+from iiif.utils import OnceRunner, get_path_stats, convert_image, get_size, get_mss_base_url_path, \
+    generate_sizes, create_logger
 
 
 class ImageInfo:
@@ -101,11 +103,13 @@ class AbstractProfile(abc.ABC):
     jpeg file, it can be processed in a common way (see the processing module).
     """
 
-    def __init__(self, name: str, config: Config, rights: str):
+    def __init__(self, name: str, config: Config, rights: str, info_json_cache_size: int = 1000,
+                 log_level: Union[int, str] = logging.WARNING):
         """
         :param name: the name of the profile, should be unique across profiles
         :param config: the config object
         :param rights: the rights definition for all images handled by this profile
+        :param info_json_cache_size: the size of the info.json cache
         """
         self.name = name
         self.config = config
@@ -116,12 +120,14 @@ class AbstractProfile(abc.ABC):
         self.rights = rights
         self.source_path.mkdir(exist_ok=True)
         self.cache_path.mkdir(exist_ok=True)
-        self.logger = logging.getLogger(self.name)
+        self.info_json_cache = LRU(info_json_cache_size)
+        self.logger = create_logger(name, log_level)
 
     @abc.abstractmethod
     async def get_info(self, name: str) -> Optional[ImageInfo]:
         """
-        Returns an instance of ImageInfo or one of it's subclasses for the given name.
+        Returns an instance of ImageInfo or one of it's subclasses for the given name. Note that
+        this function does not generate the info.json, see generate_info_json below for that!
 
         :param name: the name of the image
         :return: an info object or None if the image wasn't available (for any reason)
@@ -140,6 +146,43 @@ class AbstractProfile(abc.ABC):
         """
         pass
 
+    async def generate_info_json(self, info: ImageInfo, iiif_level: str) -> dict:
+        """
+        Generates an info.json dict for the given image. The info.json is cached locally in this
+        profile's attributes.
+
+        :param info: the ImageInfo object to create the info.json dict for
+        :param iiif_level: the IIIF image server compliance level to include in the info.json
+        :return: the generated or cached info.json dict for the image
+        """
+        # if the image's info.json isn't cached, create and add the complete info.json to the cache
+        if info.name not in self.info_json_cache:
+            id_url = f'{self.config.base_url}/{info.identifier}'
+            self.info_json_cache[info.name] = {
+                '@context': 'http://iiif.io/api/image/3/context.json',
+                'id': id_url,
+                # mirador/openseadragon seems to need this to work even though I don't think it's
+                # correct under the IIIF image API v3
+                '@id': id_url,
+                'type': 'ImageService3',
+                'protocol': 'http://iiif.io/api/image',
+                'width': info.width,
+                'height': info.height,
+                'rights': self.rights,
+                'profile': iiif_level,
+                'tiles': [
+                    {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
+                    {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
+                    {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
+                ],
+                'sizes': generate_sizes(info.width, info.height, self.config.min_sizes_size),
+                # suggest to clients that upscaling isn't supported
+                'maxWidth': info.width,
+                'maxHeight': info.height,
+            }
+
+        return self.info_json_cache[info.name]
+
     async def close(self):
         """
         Close down the profile ensuring any resources are released. This will be called before
@@ -155,6 +198,7 @@ class AbstractProfile(abc.ABC):
         """
         return {
             'name': self.name,
+            'info_json_cache_size': len(self.info_json_cache),
             'sources': get_path_stats(self.source_path),
             'cache': get_path_stats(self.cache_path),
         }
@@ -220,6 +264,8 @@ class MSSProfile(AbstractProfile):
                  ic_fast_pool_size: int,
                  ic_slow_pool_size: int,
                  collection_indices: List[str],
+                 info_json_cache_size: int = 1000,
+                 log_level: Union[int, str] = logging.WARNING,
                  mss_index: str = 'mss',
                  es_limit: int = 100,
                  doc_cache_size: int = 1_000_000,
@@ -229,7 +275,7 @@ class MSSProfile(AbstractProfile):
                  fetch_exception_timeout: int = 0,
                  ic_quality: int = 80,
                  ic_subsampling: int = 0,
-                 dm_limit: int = 4,
+                 dm_limit: int = 4
                  ):
         """
         :param name: the name of this profile
@@ -242,6 +288,8 @@ class MSSProfile(AbstractProfile):
         :param ic_slow_pool_size: the size of the slow source image conversion pool (currently,
                                   source images that are not jpegs (most likely tiffs) are put in
                                   this pool)
+        :param info_json_cache_size: the size of the info.json cache for this profile
+        :param log_level: the log level for this profile
         :param es_limit: the number of elasticsearch requests that can be active simultaneously
         :param doc_cache_size: the size of the cache for doc results
         :param doc_exception_timeout: timeout for exceptions that occur during doc retrieval
@@ -252,7 +300,7 @@ class MSSProfile(AbstractProfile):
         :param ic_subsampling: the jpeg subsampling to use when converting images
         :param dm_limit: the number of dams requests that can be active simultaneously
         """
-        super().__init__(name, config, rights)
+        super().__init__(name, config, rights, info_json_cache_size, log_level)
         self.loop = asyncio.get_event_loop()
         # runners
         self.doc_runner = OnceRunner('doc', doc_cache_size, doc_exception_timeout)
@@ -284,9 +332,10 @@ class MSSProfile(AbstractProfile):
                 shutil.rmtree(self.cache_path / name)
                 shutil.rmtree(self.source_path / name)
                 self.fetch_runner.expire_matching(lambda task_id: task_id.startswith(f'{name}::'))
+                self.info_json_cache.pop(name, None)
                 removed += 1
 
-        self.logger.info(f'Clean up removed {removed} images that are no longer available')
+        self.logger.warning(f'Clean up removed {removed} images that are no longer available')
         return removed
 
     async def get_info(self, name: str) -> Optional[MSSImageInfo]:

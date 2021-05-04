@@ -63,13 +63,9 @@ def on_startup():
     dispatcher = ImageProcessingDispatcher()
     dispatcher.init_workers(config.image_pool_size, config.image_cache_size_per_process)
 
-    # create an LRU cache to keep the most recent info.json request responses in
-    info_cache = LRU(config.info_cache_size)
-
     # add all these objects to the app state so that they can be accessed during requests
     app.state.config = config
     app.state.dispatcher = dispatcher
-    app.state.info_cache = info_cache
     app.state.mss = mss
 
 
@@ -94,7 +90,6 @@ async def status() -> dict:
     return {
         'status': ':)',
         'processing': app.state.dispatcher.get_status(),
-        'info_cache_size': len(app.state.info_cache),
         'profiles': {
             profile.name: await profile.get_status()
             for profile in app.state.config.profiles.values()
@@ -221,40 +216,9 @@ async def get_image_info(profile_name: str, name: str) -> dict:
     :param name: the name of the image, this should be unique within the profile namespace
     :return: the info.json as a dict
     """
-    profile = get_profile(profile_name)
-    key = f'{profile_name}:{name}'
-
-    # if the image's info.json is not in the cache, we need to generate it and cache it
-    if key not in app.state.info_cache:
-        info = await get_info(profile, name)
-
-        id_url = f'{app.state.config.base_url}/{info.identifier}'
-        # add the complete info.json to the cache
-        app.state.info_cache[key] = {
-            '@context': 'http://iiif.io/api/image/3/context.json',
-            'id': id_url,
-            # mirador/openseadragon seems to need this to work even though I don't think it's
-            # correct under the IIIF image API v3
-            '@id': id_url,
-            'type': 'ImageService3',
-            'protocol': 'http://iiif.io/api/image',
-            'width': info.width,
-            'height': info.height,
-            'rights': profile.rights,
-            'profile': IIIF_LEVEL,
-            'tiles': [
-                {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
-                {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
-                {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
-            ],
-            'sizes': generate_sizes(info.width, info.height, app.state.config.min_sizes_size),
-            # suggest to clients that upscaling isn't supported
-            'maxWidth': info.width,
-            'maxHeight': info.height,
-        }
-
+    profile, info = await get_profile_and_info(profile_name, name)
     # serve up the info.json (fastapi automatically writes a dict out as JSON with headers etc)
-    return app.state.info_cache[key]
+    return await profile.generate_info_json(info, IIIF_LEVEL)
 
 
 @app.get('/{profile_name}:{name}/{region}/{size}/0/default.jpg')

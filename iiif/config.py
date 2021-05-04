@@ -69,7 +69,6 @@ class Config:
 
         # info.json settings
         self.min_sizes_size = options.get('min_sizes_size', 200)
-        self.info_cache_size = options.get('info_cache_size', 1000)
 
         # image processing settings
         self.image_pool_size = options.get('image_pool_size', 2)

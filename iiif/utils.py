@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-
 from asyncio import Future
 
 import asyncio
 import humanize
+import logging
+import sys
 from PIL import Image
 from contextlib import contextmanager
 from functools import lru_cache
 from itertools import count
 from lru import LRU
 from pathlib import Path
-from typing import Callable, Awaitable, Optional, Tuple
+from typing import Callable, Awaitable, Optional, Tuple, Union
 
 
 class OnceRunner:
@@ -247,3 +248,20 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80, subsam
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
+
+
+def create_logger(name: str, level: Union[int, str]) -> logging.Logger:
+    """
+    Creates a logger with the given name that outputs to stdout and returns it.
+
+    :param name: the logger name
+    :param level: the logger level
+    :return: the logger instance
+    """
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s [%(name)s]: %(message)s')
+    handler.setFormatter(formatter)
+    logger = logging.getLogger(name)
+    logger.addHandler(handler)
+    return logger
