@@ -288,8 +288,10 @@ class MSSProfile(AbstractProfile):
         :param ic_slow_pool_size: the size of the slow source image conversion pool (currently,
                                   source images that are not jpegs (most likely tiffs) are put in
                                   this pool)
+        :param collection_indices: the indices to search to confirm the images can be accessed
         :param info_json_cache_size: the size of the info.json cache for this profile
         :param log_level: the log level for this profile
+        :param mss_index: the name of the MSS index
         :param es_limit: the number of elasticsearch requests that can be active simultaneously
         :param doc_cache_size: the size of the cache for doc results
         :param doc_exception_timeout: timeout for exceptions that occur during doc retrieval
