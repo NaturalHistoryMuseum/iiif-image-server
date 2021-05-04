@@ -1,14 +1,16 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+
 from collections import Counter, defaultdict
 
 import asyncio
-
 import humanize
 import pytest
 from PIL import Image
-from tests.utils import create_image
 
 from iiif.utils import convert_image, generate_sizes, get_size, get_mss_base_url_path, \
     get_path_stats, parse_size, OnceRunner
+from tests.utils import create_image
 
 
 class TestConvertImage:

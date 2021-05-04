@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+
 from PIL import Image
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware

@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+
 from copy import deepcopy
 from typing import Callable
 

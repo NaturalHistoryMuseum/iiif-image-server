@@ -1,12 +1,12 @@
-import orjson
-from contextlib import asynccontextmanager
+#!/usr/bin/env python3
+# encoding: utf-8
 
+import orjson
+import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-import pytest
-from tests.utils import create_image
-
 from iiif.profiles import ImageInfo, MSSImageInfo, OnDiskProfile, MSSProfile
+from tests.utils import create_image
 
 
 def test_image_info_equality():
