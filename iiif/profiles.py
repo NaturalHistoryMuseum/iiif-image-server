@@ -104,12 +104,14 @@ class AbstractProfile(abc.ABC):
     """
 
     def __init__(self, name: str, config: Config, rights: str, info_json_cache_size: int = 1000,
-                 log_level: Union[int, str] = logging.WARNING):
+                 log_level: Union[int, str] = logging.WARNING, cache_for: int = 0):
         """
         :param name: the name of the profile, should be unique across profiles
         :param config: the config object
         :param rights: the rights definition for all images handled by this profile
         :param info_json_cache_size: the size of the info.json cache
+        :param cache_for: how long in seconds a client should cache the results from this profile
+                          (both info.json and image data)
         """
         self.name = name
         self.config = config
@@ -121,6 +123,7 @@ class AbstractProfile(abc.ABC):
         self.source_path.mkdir(exist_ok=True)
         self.cache_path.mkdir(exist_ok=True)
         self.info_json_cache = LRU(info_json_cache_size)
+        self.cache_for = cache_for
         self.logger = create_logger(name, log_level)
 
     @abc.abstractmethod
@@ -264,8 +267,6 @@ class MSSProfile(AbstractProfile):
                  ic_fast_pool_size: int,
                  ic_slow_pool_size: int,
                  collection_indices: List[str],
-                 info_json_cache_size: int = 1000,
-                 log_level: Union[int, str] = logging.WARNING,
                  mss_index: str = 'mss',
                  es_limit: int = 100,
                  doc_cache_size: int = 1_000_000,
@@ -275,7 +276,8 @@ class MSSProfile(AbstractProfile):
                  fetch_exception_timeout: int = 0,
                  ic_quality: int = 80,
                  ic_subsampling: int = 0,
-                 dm_limit: int = 4
+                 dm_limit: int = 4,
+                 **kwargs
                  ):
         """
         :param name: the name of this profile
@@ -289,8 +291,6 @@ class MSSProfile(AbstractProfile):
                                   source images that are not jpegs (most likely tiffs) are put in
                                   this pool)
         :param collection_indices: the indices to search to confirm the images can be accessed
-        :param info_json_cache_size: the size of the info.json cache for this profile
-        :param log_level: the log level for this profile
         :param mss_index: the name of the MSS index
         :param es_limit: the number of elasticsearch requests that can be active simultaneously
         :param doc_cache_size: the size of the cache for doc results
@@ -302,7 +302,7 @@ class MSSProfile(AbstractProfile):
         :param ic_subsampling: the jpeg subsampling to use when converting images
         :param dm_limit: the number of dams requests that can be active simultaneously
         """
-        super().__init__(name, config, rights, info_json_cache_size, log_level)
+        super().__init__(name, config, rights, **kwargs)
         self.loop = asyncio.get_event_loop()
         # runners
         self.doc_runner = OnceRunner('doc', doc_cache_size, doc_exception_timeout)

@@ -4,6 +4,7 @@
 from PIL import Image
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from lru import LRU
 from pathlib import Path
 from starlette.responses import FileResponse, StreamingResponse
@@ -204,7 +205,7 @@ async def zip_originals(names: str, stop_on_error: bool = True,
 
 
 @app.get('/{profile_name}:{name}/info.json')
-async def get_image_info(profile_name: str, name: str) -> dict:
+async def get_image_info(profile_name: str, name: str):
     """
     IIIF image info endpoint compliant with the specification:
     https://iiif.io/api/image/3.0/#22-image-information-request-uri-syntax.
@@ -217,8 +218,10 @@ async def get_image_info(profile_name: str, name: str) -> dict:
     :return: the info.json as a dict
     """
     profile, info = await get_profile_and_info(profile_name, name)
-    # serve up the info.json (fastapi automatically writes a dict out as JSON with headers etc)
-    return await profile.generate_info_json(info, IIIF_LEVEL)
+    info_json = await profile.generate_info_json(info, IIIF_LEVEL)
+    # add a cache-control header
+    headers = {'cache-control': f'max-age={profile.cache_for}'}
+    return ORJSONResponse(content=info_json, headers=headers)
 
 
 @app.get('/{profile_name}:{name}/{region}/{size}/0/default.jpg')
@@ -255,7 +258,8 @@ async def get_image_data(profile_name: str, name: str, region: str, size: str) -
         # submit the task to the dispatcher and wait for it to complete
         await app.state.dispatcher.submit(task)
 
-    return FileResponse(output_path, media_type='image/jpeg')
+    headers = {'cache-control': f'max-age={profile.cache_for}'}
+    return FileResponse(output_path, media_type='image/jpeg', headers=headers)
 
 
 def get_profile(profile_name: str) -> AbstractProfile:
