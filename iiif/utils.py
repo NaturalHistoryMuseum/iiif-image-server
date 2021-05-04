@@ -88,7 +88,7 @@ class OnceRunner:
                                 result should be removed and False if not
         :return: the number of tasks removed by the filter function
         """
-        return sum(map(self.expire, filter(filter_function, list(self.results))))
+        return sum(map(self.expire, filter(filter_function, list(self.results.keys()))))
 
     async def get_status(self) -> dict:
         """
