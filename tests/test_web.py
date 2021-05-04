@@ -89,3 +89,15 @@ def test_unsupported_iiif_features(test_client, config):
 
     response = test_client.get(f'/{profile}:{name}/full/max/90/bitonal.jpg')
     assert response.status_code == 404
+
+
+def test_missing_image(test_client, config):
+    assert 'test' in config.profiles
+    response = test_client.get('/test:anything/info.json')
+    assert response.status_code == 404
+
+
+def test_too_many_images_download(test_client, config):
+    size = config.download_max_files + 1
+    response = test_client.get(f'/originals?names={",".join(map(str, range(size)))}')
+    assert response.status_code == 400
