@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from asyncio import Future
 
 import asyncio
+from asyncio import Future
+from pathlib import Path
+from typing import Callable, Awaitable, Optional, Tuple, Union
+
 import humanize
+import io
 import logging
 import sys
 from PIL import Image
 from contextlib import contextmanager
 from functools import lru_cache
 from itertools import count
+from jpegtran import JPEGImage
 from lru import LRU
-from pathlib import Path
-from typing import Callable, Awaitable, Optional, Tuple, Union
+from wand.image import Image as WandImage
 
 
 class OnceRunner:
@@ -124,29 +128,6 @@ class OnceRunner:
         self.working -= 1
 
 
-def parse_size(size: str, width: int, height: int):
-    """
-    Parses the IIIF size parameter and returns the width and a height requested. Note that this only
-    currently supports parsing level 1 compliant size parameters (see
-    https://iiif.io/api/image/3.0/compliance/#32-size).
-
-    :param size: the size parameter value
-    :param width: the full width of the image
-    :param height: the full height of the image
-    :return: the requested width and height
-    """
-    if size == 'max':
-        return width, height
-
-    w, h = (float(v) if v != '' else v for v in size.split(','))
-    if h == '':
-        h = height * w / width
-    elif w == '':
-        w = width * h / height
-
-    return int(w), int(h)
-
-
 def get_path_stats(path: Path) -> dict:
     """
     Calculates some statistics about the on disk path's files.
@@ -161,30 +142,6 @@ def get_path_stats(path: Path) -> dict:
         'size_bytes': size,
         'size_pretty': humanize.naturalsize(size, binary=True),
     }
-
-
-def get_mss_base_url_path(name: str):
-    """
-    Given the name of an image in the MSS system (i.e. an EMu IRN) return the URL path part that
-    contains the its images in MSS.
-
-    This is directly related to how EMu actually stores the files associated with a multimedia
-    record on disk. Through reverse engineering, it has been determined that it stores the files
-    under a folder path where two folders are created the second one is the (padded) last 3 digits
-    of the IRN and the first one is the everything up to those last 3 digits. If the padded IRN is
-    exactly 3 digits then a single 0 is used. Examples:
-
-        - 1 -> 0/001
-        - 14 -> 0/014
-        - 305 -> 0/305
-        - 9217 -> 9/217
-        - 2389749823 -> 2389749/823
-
-    :param name: the EMu IRN of the image
-    :return: the path part as a string
-    """
-    padded = str(name).zfill(4)
-    return f'{padded[:-3]}/{padded[-3:]}'
 
 
 def get_size(path: Path) -> Tuple[int, int]:
@@ -223,7 +180,8 @@ def generate_sizes(width: int, height: int, minimum_size: int = 200):
     return sizes
 
 
-def convert_image(image_path: Path, target_path: Path, quality: int = 80, subsampling: int = 0):
+def convert_image(image_path: Path, target_path: Path, quality: int = 80,
+                  subsampling: str = '4:2:2'):
     """
     Given the path to an image, outputs the image to the target path in jpeg format. This should
     happen to all images that will have processing done on them subsequently as it means we can use
@@ -234,20 +192,22 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80, subsam
     :param quality: the jpeg quality setting to use
     :param subsampling: the jpeg subsampling to use
     """
-    image = Image.open(image_path)
+    with WandImage(filename=str(image_path)) as image:
+        if image.format.lower() == 'jpeg':
+            # if it's a jpeg, remove the orientation exif tag. We do this because through trial and
+            # error it seems the dimensions provided by EMu are non-orientated and therefore we need
+            # to work on the images without their orientation too and serve them up without it
+            # otherwise things start to go awry
+            image.strip()
+        else:
+            image.format = 'jpeg'
 
-    # if it's a jpeg, remove the orientation exif tag. We do this because through trial and error it
-    # seems the dimensions provided by EMu are non-orientated and therefore we need to work on the
-    # images without their orientation too and serve them up without it otherwise things start to go
-    # awry
-    if image.format.lower() == 'jpeg':
-        exif = image.getexif()
-        # this is the orientation tag, remove it if it's there
-        exif.pop(0x0112, None)
-        image.info['exif'] = exif.tobytes()
+        image.compression_quality = quality
+        image.options['jpeg:sampling-factor'] = subsampling
 
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with target_path.open('wb') as f:
+            image.save(file=f)
 
 
 def create_logger(name: str, level: Union[int, str]) -> logging.Logger:
@@ -265,3 +225,40 @@ def create_logger(name: str, level: Union[int, str]) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.addHandler(handler)
     return logger
+
+
+def parse_identifier(identifier: str) -> Tuple[Optional[str], str]:
+    """
+    Parse the identifier into a profile name and image name. The profile name may be omitted in
+    which case a (None, <name>) is returned.
+
+    :param identifier: the image identifier
+    :return: a 2-tuple of 2 strings or None and a string
+    """
+    if ':' in identifier:
+        return tuple(identifier.split(':', 1))
+    else:
+        return None, identifier
+
+
+def to_pillow(image: JPEGImage) -> Image:
+    """
+    Convert the given JPEGImage to a Pillow image.
+
+    :param image: a JPEGImage object
+    :return: a Pillow image object
+    """
+    return Image.open(io.BytesIO(image.as_blob()))
+
+
+def to_jpegtran(image: Image) -> JPEGImage:
+    """
+    Convert the given Pillow image to a JPEGImage image.
+
+    :param image: a Pillow image object
+    :return: a JPEGImage object
+    """
+    output = io.BytesIO()
+    image.save(output, format='jpeg')
+    output.seek(0)
+    return JPEGImage(blob=output.read())

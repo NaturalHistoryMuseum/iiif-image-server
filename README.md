@@ -1,10 +1,10 @@
-# IIIF Image Server
+# Data Portal Media Server
 [![Travis](https://img.shields.io/travis/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://travis-ci.org/NaturalHistoryMuseum/iiif-image-server)
 [![Coveralls](https://img.shields.io/coveralls/github/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://coveralls.io/github/NaturalHistoryMuseum/iiif-image-server)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 
-This is a IIIF image server designed to work under specific conditions in a pilot being run by the
-Informatics team at the Natural History Museum.
+This is a media server for the NHM Data Portal.
+It currently just serves up images and can do IIIF too.
 
 Probably best not to use it for anything else at the moment as it has some hard coded assumptions
 based on locations of NHM assets and cannot be used generically yet.
@@ -18,9 +18,9 @@ See `.travis.yml` for dependency install example on Ubuntu 18.04, generally thou
     - libcurl
 
 ## Architecture
-This server is written using Python's asyncio framework and the Tornado web server.
-Image data requests are handled through Tornado but if any image processing is required to fulfill a
-request then this occurs in a separate process to avoid holding up the whole server.
+This server is written using Python's asyncio framework and FastAPI.
+Image data requests start by being handled by FastAPI but if any image processing is required to
+fulfill a request then this occurs in a separate process to avoid holding up the whole server.
 Python's multiprocessing libraries are used to facilitate this with image operations queued and
 handled by a fixed size pool of workers.
 This approach ensures we can keep control of resource usage (i.e. RAM and CPU).
@@ -36,7 +36,7 @@ Identifiers are expected in two parts: `<type>:<identifier>`.
 This format is intended support two pieces of functionality:
     - it allows the server to handle requests for images from a variety of sources. For example,
       `abc:1` maybe be an on disk image whereas `xyz:1` maybe an image on the web that must be
-      downloaded before it can be processed)
+      downloaded before it can be processed
     - it discourages users just specifying a URL as the identifier which would be open to abuse
 
 See the config section for more information about configuring identifier types and sources.

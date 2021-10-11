@@ -13,7 +13,9 @@ from fastapi import HTTPException
 from queue import Queue
 from unittest.mock import patch, MagicMock, call
 
+from iiif.ops import parse_params
 from iiif.processing import Task, process_image_requests, Worker, ImageProcessingDispatcher
+from iiif.profiles.base import ImageInfo
 from tests.utils import create_image
 
 default_image_width = 4000
@@ -28,6 +30,11 @@ def source_path(config):
 @pytest.fixture
 def cache_path(config):
     return config.cache_path / 'test' / 'image'
+
+
+@pytest.fixture
+def info():
+    return ImageInfo('test_profile', 'test_image', default_image_width, default_image_height)
 
 
 @pytest.fixture
@@ -69,9 +76,9 @@ class TestProcessImageRequestsLevel0:
     other than jpg and therefore we don't need to test for them.
     """
 
-    def test(self, source_path, cache_path, task_queue, result_queue):
+    def test(self, source_path, cache_path, info, task_queue, result_queue):
         # this is all that is expected at level 0
-        task = Task(source_path, cache_path, 'full', 'max')
+        task = Task(source_path, cache_path, parse_params(info))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -90,9 +97,9 @@ class TestProcessImageRequestsLevel1:
     See: https://iiif.io/api/image/3.0/compliance/.
     """
 
-    def test_regionByPx_jpegtran(self, source_path, cache_path, task_queue, result_queue):
+    def test_regionByPx_jpegtran(self, source_path, cache_path, info, task_queue, result_queue):
         x, y, w, h = 0, 0, 1024, 1024
-        task = Task(source_path, cache_path, f'{x},{y},{w},{h}', 'max')
+        task = Task(source_path, cache_path, parse_params(info, f'{x},{y},{w},{h}'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -104,9 +111,9 @@ class TestProcessImageRequestsLevel1:
         check_size(task, 1024, 1024)
         check_result(task, lambda img: img.crop((x, y, x + w, y + h)))
 
-    def test_regionByPx_any(self, source_path, cache_path, task_queue, result_queue):
+    def test_regionByPx_any(self, source_path, cache_path, info, task_queue, result_queue):
         x, y, w, h = 6, 191, 1002, 1053
-        task = Task(source_path, cache_path, f'{x},{y},{w},{h}', 'max')
+        task = Task(source_path, cache_path, parse_params(info, f'{x},{y},{w},{h}'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -122,7 +129,8 @@ class TestProcessImageRequestsLevel1:
         width = 500
         height = 500
         source = create_image(config, width, height)
-        task = Task(source, cache_path, 'square', 'max')
+        info = ImageInfo('test_profile', 'test_image', width, height)
+        task = Task(source, cache_path, parse_params(info, 'square'))
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -136,7 +144,8 @@ class TestProcessImageRequestsLevel1:
         width = 512
         height = 768
         source = create_image(config, width, height)
-        task = Task(source, cache_path, 'square', 'max')
+        info = ImageInfo('test_profile', 'test_image', width, height)
+        task = Task(source, cache_path, parse_params(info, 'square'))
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -150,7 +159,8 @@ class TestProcessImageRequestsLevel1:
         width = 768
         height = 512
         source = create_image(config, width, height)
-        task = Task(source, cache_path, 'square', 'max')
+        info = ImageInfo('test_profile', 'test_image', width, height)
+        task = Task(source, cache_path, parse_params(info, 'square'))
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -164,7 +174,8 @@ class TestProcessImageRequestsLevel1:
         width = 500
         height = 700
         source = create_image(config, width, height)
-        task = Task(source, cache_path, 'square', 'max')
+        info = ImageInfo('test_profile', 'test_image', width, height)
+        task = Task(source, cache_path, parse_params(info, 'square'))
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -178,7 +189,8 @@ class TestProcessImageRequestsLevel1:
         width = 700
         height = 500
         source = create_image(config, width, height)
-        task = Task(source, cache_path, 'square', 'max')
+        info = ImageInfo('test_profile', 'test_image', width, height)
+        task = Task(source, cache_path, parse_params(info, 'square'))
         task_queue.put(task)
         task_queue.put(None)
         process_image_requests(0, task_queue, result_queue, 1)
@@ -188,10 +200,10 @@ class TestProcessImageRequestsLevel1:
         check_size(task, height, height)
         check_result(task, lambda img: img.crop((100, 0, 600, 500)))
 
-    def test_sizeByW(self, source_path, cache_path, task_queue, result_queue):
+    def test_sizeByW(self, source_path, cache_path, info, task_queue, result_queue):
         width = 512
         expected_height = int(default_image_height * width / default_image_width)
-        task = Task(source_path, cache_path, 'full', f'{width},')
+        task = Task(source_path, cache_path, parse_params(info, size=f'{width},'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -203,10 +215,10 @@ class TestProcessImageRequestsLevel1:
         check_size(task, width, expected_height)
         check_result(task, lambda img: img.resize((width, expected_height)))
 
-    def test_sizeByH(self, source_path, cache_path, task_queue, result_queue):
+    def test_sizeByH(self, source_path, cache_path, info, task_queue, result_queue):
         height = 512
         expected_width = int(default_image_width * height / default_image_height)
-        task = Task(source_path, cache_path, 'full', f',{height}')
+        task = Task(source_path, cache_path, parse_params(info, size=f',{height}'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -218,10 +230,10 @@ class TestProcessImageRequestsLevel1:
         check_size(task, expected_width, height)
         check_result(task, lambda img: img.resize((expected_width, height)))
 
-    def test_sizeByWh(self, source_path, cache_path, task_queue, result_queue):
+    def test_sizeByWh(self, source_path, cache_path, info, task_queue, result_queue):
         width = 400
         height = 600
-        task = Task(source_path, cache_path, 'full', f'{width},{height}')
+        task = Task(source_path, cache_path, parse_params(info, size=f'{width},{height}'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -236,9 +248,9 @@ class TestProcessImageRequestsLevel1:
 
 class TestProcessImageRequestsMisc:
 
-    def test_region_and_size_precise(self, source_path, cache_path, task_queue, result_queue):
+    def test_region_and_size_precise(self, source_path, cache_path, info, task_queue, result_queue):
         # simple check to make sure region and size play nicely together
-        task = Task(source_path, cache_path, '100,200,600,891', '256,401')
+        task = Task(source_path, cache_path, parse_params(info, '100,200,600,891', '256,401'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -256,7 +268,8 @@ class TestProcessImageRequestsMisc:
         width = 500
         height = 700
         source = create_image(config, width, height)
-        task = Task(source, cache_path, 'square', ',400')
+        info = ImageInfo('test_profile', 'test_image', width, height)
+        task = Task(source, cache_path, parse_params(info, 'square', ',400'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -268,9 +281,9 @@ class TestProcessImageRequestsMisc:
         check_size(task, 400, 400)
         check_result(task, lambda img: img.crop((0, 100, 500, 600)).resize((400, 400)))
 
-    def test_upscale_errors_when_not_specified(self, source_path, cache_path, task_queue,
+    def test_upscale_errors_when_not_specified(self, source_path, cache_path, info, task_queue,
                                                result_queue):
-        task = Task(source_path, cache_path, '0,0,400,400', '500,500')
+        task = Task(source_path, cache_path, parse_params(info, '0,0,400,400', '500,500'))
         task_queue.put(task)
         task_queue.put(None)
 
@@ -294,8 +307,8 @@ class TestWorker:
         return worker
 
     @pytest.fixture
-    def task(self, source_path, cache_path):
-        return Task(source_path, cache_path, 'full', 'max')
+    def task(self, source_path, cache_path, info):
+        return Task(source_path, cache_path, parse_params(info))
 
     @pytest.fixture
     def result_queue(self):
@@ -327,18 +340,22 @@ class TestWorker:
         worker = Worker(0, result_queue, 2)
 
         image1_source = create_image(config, 100, 200, profile='test', name='image1')
+        info1 = ImageInfo('t1', 't1', 100, 200)
         image2_source = create_image(config, 100, 200, profile='test', name='image2')
+        info2 = ImageInfo('t1', 't2', 100, 200)
         image3_source = create_image(config, 100, 200, profile='test', name='image3')
+        info3 = ImageInfo('t1', 't3', 100, 200)
         image4_source = create_image(config, 100, 200, profile='test', name='image4')
+        info4 = ImageInfo('t1', 't4', 100, 200)
         image1_cache = config.cache_path / 'test' / 'image1'
         image2_cache = config.cache_path / 'test' / 'image2'
         image3_cache = config.cache_path / 'test' / 'image3'
         image4_cache = config.cache_path / 'test' / 'image4'
 
-        task1 = Task(image1_source, image1_cache, 'full', 'max')
-        task2 = Task(image2_source, image2_cache, 'full', 'max')
-        task3 = Task(image3_source, image3_cache, 'full', 'max')
-        task4 = Task(image4_source, image4_cache, 'full', 'max')
+        task1 = Task(image1_source, image1_cache, parse_params(info1))
+        task2 = Task(image2_source, image2_cache, parse_params(info2))
+        task3 = Task(image3_source, image3_cache, parse_params(info3))
+        task4 = Task(image4_source, image4_cache, parse_params(info4))
 
         worker.add(task1)
         assert any(worker.is_warm_for(task) for task in (task1,))
@@ -361,7 +378,8 @@ class TestWorker:
     def test_result_queue_is_used(self, config, cache_path, result_queue):
         worker = Worker(0, result_queue, 2)
         source_path = create_image(config, 100, 200)
-        task = Task(source_path, cache_path, 'full', 'max')
+        info = ImageInfo('t1', 't1', 100, 200)
+        task = Task(source_path, cache_path, parse_params(info))
 
         worker.add(task)
         worker.stop()

@@ -8,8 +8,7 @@ import humanize
 import pytest
 from PIL import Image
 
-from iiif.utils import convert_image, generate_sizes, get_size, get_mss_base_url_path, \
-    get_path_stats, parse_size, OnceRunner
+from iiif.utils import convert_image, generate_sizes, get_size, get_path_stats, OnceRunner
 from tests.utils import create_image
 
 
@@ -95,11 +94,6 @@ mss_base_url_scenarios = [
 ]
 
 
-@pytest.mark.parametrize('name,expected', mss_base_url_scenarios)
-def test_get_mss_base_url_path(name, expected):
-    assert expected == get_mss_base_url_path(name)
-
-
 def test_get_path_stats(tmp_path):
     total = 0
     count = 0
@@ -123,21 +117,6 @@ def test_get_path_stats_empty(tmp_path):
     assert stats['count'] == 0
     assert stats['size_bytes'] == 0
     assert stats['size_pretty'] == humanize.naturalsize(0, binary=True)
-
-
-class TestParseSize:
-
-    def test_max(self):
-        assert parse_size('max', 1000, 500) == (1000, 500)
-
-    def test_just_width(self):
-        assert parse_size('500,', 1000, 500) == (500, 250)
-
-    def test_just_height(self):
-        assert parse_size(',250', 1000, 500) == (500, 250)
-
-    def test_width_and_height(self):
-        assert parse_size('500,250', 1000, 500) == (500, 250)
 
 
 class TestOnceRunner:

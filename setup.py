@@ -25,6 +25,7 @@ install_dependencies = [
     'pillow~=8.2.0',
     'pyyaml~=5.4.1',
     'uvicorn[standard]~=0.13.4',
+    'wand~=0.6.7',
 ]
 test_dependencies = [
     'pytest~=5.4.1',
@@ -34,14 +35,14 @@ test_dependencies = [
 ]
 
 setup(
-    name="iiif-image-server",
+    name="data-portal-media-server",
     version='1.0.0',
     author='Natural History Museum',
     author_email='data@nhm.ac.uk',
-    description="A simple IIIF server that simply works for the V-Factor beetle drawer pilot",
+    description="A media server for the Data Portal",
     long_description=readme,
     long_description_content_type="text/markdown",
-    url="https://github.com/NaturalHistoryMuseum/iiif-image-server/",
+    url="https://github.com/NaturalHistoryMuseum/data-portal-media-server/",
     packages=find_packages(),
     install_requires=install_dependencies,
     dependency_links=[jpegtran_url],

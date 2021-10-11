@@ -1,62 +1,23 @@
-#!/usr/bin/env python3
-# encoding: utf-8
+import asyncio
+from concurrent.futures.process import ProcessPoolExecutor
+from pathlib import Path
+from typing import Tuple, List, Optional
+from urllib.parse import quote
 
-import abc
 import aiocron as aiocron
 import aiohttp
-import asyncio
-import logging
 import orjson
 import shutil
 import tempfile
 import time
-from concurrent.futures.process import ProcessPoolExecutor
 from contextlib import AsyncExitStack
 from elasticsearch_dsl import Search
+from fastapi import HTTPException
 from itertools import cycle, chain
-from lru import LRU
-from pathlib import Path
-from typing import Tuple, List, Optional, Any, Union
-from urllib.parse import quote
 
-from iiif.config import Config, registry
-from iiif.utils import OnceRunner, get_path_stats, convert_image, get_size, get_mss_base_url_path, \
-    generate_sizes, create_logger
-
-
-class ImageInfo:
-    """
-    Base info class which holds the basic details of an image.
-    """
-
-    def __init__(self, profile_name: str, name: str, width: int, height: int):
-        """
-        :param profile_name: the name of the profile this image belongs to
-        :param name: the name of image (this should be unique within the profile's jurisdiction)
-        :param width: the width of the image
-        :param height: the height of the image
-        """
-        self.profile_name = profile_name
-        self.name = name
-        self.width = width
-        self.height = height
-        self.identifier = f'{self.profile_name}:{self.name}'
-
-    @property
-    def size(self) -> Tuple[int, int]:
-        """
-        Returns width and height as a 2-tuple.
-        :return: a 2-tuple containing the width and height
-        """
-        return self.width, self.height
-
-    def __eq__(self, other: Any) -> bool:
-        if isinstance(other, ImageInfo):
-            return self.identifier == other.identifier
-        return NotImplemented
-
-    def __hash__(self) -> int:
-        return hash(self.identifier)
+from iiif.config import Config
+from iiif.profiles.base import AbstractProfile, ImageInfo
+from iiif.utils import OnceRunner, convert_image, get_size
 
 
 class MSSImageInfo(ImageInfo):
@@ -95,164 +56,6 @@ class MSSImageInfo(ImageInfo):
         return self.original
 
 
-class AbstractProfile(abc.ABC):
-    """
-    Abstract base class for all profiles. Each subclass defines a profile which can be used to
-    retrieve the source image data required to complete a IIIF request (either info.json or actual
-    data). Once a profile has been used to retrieve a source image and make it real on disk as a
-    jpeg file, it can be processed in a common way (see the processing module).
-    """
-
-    def __init__(self, name: str, config: Config, rights: str, info_json_cache_size: int = 1000,
-                 log_level: Union[int, str] = logging.WARNING, cache_for: int = 0):
-        """
-        :param name: the name of the profile, should be unique across profiles
-        :param config: the config object
-        :param rights: the rights definition for all images handled by this profile
-        :param info_json_cache_size: the size of the info.json cache
-        :param cache_for: how long in seconds a client should cache the results from this profile
-                          (both info.json and image data)
-        """
-        self.name = name
-        self.config = config
-        # this is where all of our source images will be stored
-        self.source_path = config.source_path / name
-        # this is where all of our processed images will be stored
-        self.cache_path = config.cache_path / name
-        self.rights = rights
-        self.source_path.mkdir(exist_ok=True)
-        self.cache_path.mkdir(exist_ok=True)
-        self.info_json_cache = LRU(info_json_cache_size)
-        self.cache_for = cache_for
-        self.logger = create_logger(name, log_level)
-
-    @abc.abstractmethod
-    async def get_info(self, name: str) -> Optional[ImageInfo]:
-        """
-        Returns an instance of ImageInfo or one of it's subclasses for the given name. Note that
-        this function does not generate the info.json, see generate_info_json below for that!
-
-        :param name: the name of the image
-        :return: an info object or None if the image wasn't available (for any reason)
-        """
-        pass
-
-    @abc.abstractmethod
-    async def fetch_source(self, info: ImageInfo,
-                           target_size: Optional[Tuple[int, int]] = None) -> Optional[Path]:
-        """
-        Ensures the source file required for the optional target size is available
-
-        :param info:
-        :param target_size:
-        :return:
-        """
-        pass
-
-    async def generate_info_json(self, info: ImageInfo, iiif_level: str) -> dict:
-        """
-        Generates an info.json dict for the given image. The info.json is cached locally in this
-        profile's attributes.
-
-        :param info: the ImageInfo object to create the info.json dict for
-        :param iiif_level: the IIIF image server compliance level to include in the info.json
-        :return: the generated or cached info.json dict for the image
-        """
-        # if the image's info.json isn't cached, create and add the complete info.json to the cache
-        if info.name not in self.info_json_cache:
-            id_url = f'{self.config.base_url}/{info.identifier}'
-            self.info_json_cache[info.name] = {
-                '@context': 'http://iiif.io/api/image/3/context.json',
-                'id': id_url,
-                # mirador/openseadragon seems to need this to work even though I don't think it's
-                # correct under the IIIF image API v3
-                '@id': id_url,
-                'type': 'ImageService3',
-                'protocol': 'http://iiif.io/api/image',
-                'width': info.width,
-                'height': info.height,
-                'rights': self.rights,
-                'profile': iiif_level,
-                'tiles': [
-                    {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
-                    {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
-                    {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
-                ],
-                'sizes': generate_sizes(info.width, info.height, self.config.min_sizes_size),
-                # suggest to clients that upscaling isn't supported
-                'maxWidth': info.width,
-                'maxHeight': info.height,
-            }
-
-        return self.info_json_cache[info.name]
-
-    async def close(self):
-        """
-        Close down the profile ensuring any resources are released. This will be called before
-        server shutdown.
-        """
-        pass
-
-    async def get_status(self) -> dict:
-        """
-        Returns some stats about the profile.
-
-        :return: a dict of stats
-        """
-        return {
-            'name': self.name,
-            'info_json_cache_size': len(self.info_json_cache),
-            'sources': get_path_stats(self.source_path),
-            'cache': get_path_stats(self.cache_path),
-        }
-
-
-@registry.register('disk')
-class OnDiskProfile(AbstractProfile):
-    """
-    A profile representing source files that are already on disk and don't need to be fetched from
-    an external source.
-    """
-
-    async def get_info(self, name: str) -> Optional[ImageInfo]:
-        """
-        Given an image name, returns an info object for it. If the image doesn't exist on disk then
-        None is returned.
-
-        :param name: the image name
-        :return: None if the image doesn't exist on disk, or an ImageInfo instance
-        """
-        source = self._get_source(name)
-        if not source.exists():
-            return None
-        else:
-            size = get_size(self._get_source(name))
-            return ImageInfo(self.name, name, *size)
-
-    async def fetch_source(self, info: ImageInfo,
-                           target_size: Optional[Tuple[int, int]] = None) -> Optional[Path]:
-        """
-        Given an info object returns the path to the on disk image source. The target size is
-        ignored by this function because we only have the full size original and nothing else.
-
-        :param info: the image info object
-        :param target_size: a target size - this is ignored by this function
-        :return: the path to the source image on disk
-        """
-        source_path = self._get_source(info.name)
-        return source_path if source_path.exists() else None
-
-    def _get_source(self, name: str) -> Path:
-        """
-        Returns the path to the given name in this profile.
-
-        :param name: the name of the image
-        :return: the path to the image
-        """
-        return self.source_path / name
-
-
-@registry.register('mss')
 class MSSProfile(AbstractProfile):
     """
     Profile for the MSS service which provides access to the images stored in EMu.
@@ -274,9 +77,11 @@ class MSSProfile(AbstractProfile):
                  mss_limit: int = 20,
                  fetch_cache_size: int = 1_000_000,
                  fetch_exception_timeout: int = 0,
-                 ic_quality: int = 80,
-                 ic_subsampling: int = 0,
+                 ic_quality: int = 85,
+                 ic_subsampling: str = '4:2:0',
                  dm_limit: int = 4,
+                 mss_ssl: bool = True,
+                 dm_ssl: bool = True,
                  **kwargs
                  ):
         """
@@ -301,6 +106,10 @@ class MSSProfile(AbstractProfile):
         :param ic_quality: the jpeg quality to use when converting images
         :param ic_subsampling: the jpeg subsampling to use when converting images
         :param dm_limit: the number of dams requests that can be active simultaneously
+        :param mss_ssl: boolean indicating whether ssl certificates should be checked when making
+                        requests to mss
+        :param dm_ssl: boolean indicating whether ssl certificates should be checked when making
+                       requests to dams
         """
         super().__init__(name, config, rights, **kwargs)
         self.loop = asyncio.get_event_loop()
@@ -314,9 +123,13 @@ class MSSProfile(AbstractProfile):
         self.mss_index = mss_index
         # MSS
         self.mss_url = mss_url
-        self.mss_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=mss_limit))
+        self.mss_ssl = None if mss_ssl else False
+        self.mss_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=mss_limit,
+                                                                                ssl=mss_ssl))
         # dams
-        self.dm_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=dm_limit))
+        self.dm_ssl = None if dm_ssl else False
+        self.dm_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=dm_limit,
+                                                                               ssl=dm_ssl))
         # image conversion
         self.ic_fast_pool = ProcessPoolExecutor(max_workers=ic_slow_pool_size)
         self.ic_slow_pool = ProcessPoolExecutor(max_workers=ic_fast_pool_size)
@@ -435,6 +248,7 @@ class MSSProfile(AbstractProfile):
         Retrieves a MSS doc and ensures it's should be accessible. For a doc to be returned instead
         of None:
 
+            - the EMu IRN must be valid according the to MSS (i.e. the APS)
             - the doc must exist in the mss index in elasticsearch
             - the EMu IRN (i.e. the name) must be found in either the specimen, index lot or
               artefacts indices as an associated media item
@@ -446,6 +260,20 @@ class MSSProfile(AbstractProfile):
         """
 
         async def get_doc() -> Optional[dict]:
+            # first, check with mss that the irn is valid
+            async with self.mss_session.get(f'{self.mss_url}/{name}') as response:
+                if not response.ok:
+                    return None
+
+            # next, check that we have a document in the mss index
+            doc_url = f'{next(self.es_hosts)}/{self.mss_index}/_doc/{name}'
+            async with self.es_session.get(doc_url) as response:
+                text = await response.text(encoding='utf-8')
+                info = orjson.loads(text)
+                if not info['found']:
+                    return None
+
+            # finally, check that the irn is associated with a record in the collection datasets
             count_url = f'{next(self.es_hosts)}/{self.collection_indices}/_count'
             search = Search() \
                 .filter('term', **{'data.associatedMedia._id': name}) \
@@ -455,18 +283,23 @@ class MSSProfile(AbstractProfile):
                 if orjson.loads(text)['count'] == 0:
                     return None
 
-            doc_url = f'{next(self.es_hosts)}/{self.mss_index}/_doc/{name}'
-            async with self.es_session.get(doc_url) as response:
-                text = await response.text(encoding='utf-8')
-                info = orjson.loads(text)
-                if info['found']:
-                    return info['_source']
-                else:
-                    return None
+            # if we get here then all 3 checks have passed
+            return info['_source']
 
         if refresh:
             self.doc_runner.expire(name)
         return await self.doc_runner.run(name, get_doc)
+
+    async def resolve_filename(self, name: str) -> Optional[str]:
+        """
+        Given an image name (i.e. IRN), return the original filename or None if the image can't be
+        found.
+
+        :param name: the image name (in this case the IRN)
+        :return: the filename or None
+        """
+        doc = await self.get_mss_doc(name)
+        return doc['file'] if doc is not None else None
 
     async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
         """
@@ -498,15 +331,16 @@ class MSSProfile(AbstractProfile):
         :param is_original: whether the file is an original image (if it is and the file doesn't
                             exist in MSS we'll try looking for a damsurl file)
         """
-        base = get_mss_base_url_path(name)
-
         async with AsyncExitStack() as stack:
-            file_url = f'{self.mss_url}/{base}/{quote(file)}'
+            file_url = f'{self.mss_url}/{name}/{quote(file)}'
             response = await stack.enter_async_context(self.mss_session.get(file_url))
+
+            if response.status == 401:
+                raise HTTPException(status_code=401, detail=f'Access denied')
 
             if response.status == 404 and is_original:
                 # check for a damsurl file
-                damsurl_file = f'{self.mss_url}/{base}/damsurl'
+                damsurl_file = f'{self.mss_url}/{name}/damsurl'
                 response = await stack.enter_async_context(self.mss_session.get(damsurl_file))
                 response.raise_for_status()
 

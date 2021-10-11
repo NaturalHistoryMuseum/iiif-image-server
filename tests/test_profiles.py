@@ -5,7 +5,9 @@ import orjson
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
-from iiif.profiles import ImageInfo, MSSImageInfo, OnDiskProfile, MSSProfile
+from iiif.profiles import OnDiskProfile, MSSProfile
+from iiif.profiles.base import ImageInfo
+from iiif.profiles.mss import MSSImageInfo
 from tests.utils import create_image
 
 

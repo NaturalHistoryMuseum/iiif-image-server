@@ -9,51 +9,6 @@ import yaml
 from pathlib import Path
 
 
-class ProfileRegistry:
-    """
-    This class is a registry for profiles! Funny that.
-    """
-
-    def __init__(self):
-        self.profile_types = {}
-
-    def register(self, profile_type: str):
-        """
-        Registers the decorated class/function with the registry under the given type.
-
-        :param profile_type: the type name
-        :return: a decorator function
-        """
-
-        def decorator(to_register: Callable):
-            self.profile_types[profile_type] = to_register
-            return to_register
-
-        return decorator
-
-    def load_profiles(self, config: 'Config', profile_options: dict) -> dict:
-        """
-        Given the config object, create all the profiles that are defined within it.
-
-        :param config: the config object
-        :param profile_options: the profile options dict from the config source
-        :return: a dict of profiles keyed by name
-        """
-        profiles = {}
-        # use a deep copy of the profiles config so that we don't mess with the one stored on the
-        # config object (we do a pop in the loop!)
-        profile_options = deepcopy(profile_options)
-        for name, options in profile_options.items():
-            # here's that pop, wow!
-            profile_creator = self.profile_types[options.pop('type')]
-            rights = options.pop('rights')
-            profiles[name] = profile_creator(name, config, rights, **options)
-        return profiles
-
-
-registry = ProfileRegistry()
-
-
 class Config:
 
     def __init__(self, **options):
@@ -82,8 +37,11 @@ class Config:
         self.download_chunk_size = options.get('download_chunk_size', 4096)
         self.download_max_files = options.get('download_max_files', 20)
 
-        # load the profile configurations
-        self.profiles = registry.load_profiles(self, options.get('profiles', {}))
+        self.default_profile_name = options.get('default_profile', None)
+        self.profile_options = options.get('profiles', {})
+
+    def has_default_profile(self) -> bool:
+        return self.default_profile_name is not None
 
 
 def load_config() -> Config:
