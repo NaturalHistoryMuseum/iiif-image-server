@@ -181,7 +181,7 @@ def generate_sizes(width: int, height: int, minimum_size: int = 200):
 
 
 def convert_image(image_path: Path, target_path: Path, quality: int = 80,
-                  subsampling: str = '4:2:2'):
+                  subsampling: str = '4:2:0'):
     """
     Given the path to an image, outputs the image to the target path in jpeg format. This should
     happen to all images that will have processing done on them subsequently as it means we can use
