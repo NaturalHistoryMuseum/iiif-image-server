@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from collections import defaultdict, namedtuple
 
-import io
-import multiprocessing as mp
-import random
-from PIL import Image
-from jpegtran import JPEGImage
-from lru import LRU
+import asyncio
+from asyncio import Future
+from collections import defaultdict
 from multiprocessing.context import Process
 from pathlib import Path
-from threading import Thread
-from tornado.concurrent import Future
-from tornado.ioloop import IOLoop
-from tornado.web import HTTPError
 from typing import Any, Optional
 
-from iiif.image import IIIFImage
+import multiprocessing as mp
+import random
+from jpegtran import JPEGImage
+from jpegtran.lib import Transformation
+from lru import LRU
+from threading import Thread
 
-Crop = namedtuple('Crop', ('x', 'y', 'w', 'h'))
+from iiif.ops import IIIFOps, Region, Size, Rotation, Quality, Format
+from iiif.utils import to_pillow, to_jpegtran
 
 
 class Task:
@@ -26,30 +24,22 @@ class Task:
     Class representing an image processing task as defined by a IIIF based request.
     """
 
-    def __init__(self, image: IIIFImage, region: str, size: str):
+    def __init__(self, source_path: Path, output_path: Path, ops: IIIFOps):
         """
-        :param image: the Image object to work on
         :param region: the IIIF region request parameter
         :param size: the IIIF size request parameter
         """
-        self.image = image
-        self.region = region
-        self.size = size
-
-    @property
-    def output_path(self) -> Path:
-        # the output path is formed by using the image's cache path and then each part of the
-        # request as a folder in the path
-        return self.image.cache_path / self.region / f'{self.size}.jpg'
+        self.source_path = source_path
+        self.output_path = output_path
+        self.ops = ops
 
     def __eq__(self, other):
         if isinstance(other, Task):
-            # we can just use the output path for equivalence as it includes the region and size
-            return self.image == other.image and self.output_path == other.output_path
+            return self.source_path == other.source_path and self.ops == other.ops
         return NotImplemented
 
 
-def process_region(image: JPEGImage, region: str) -> JPEGImage:
+def process_region(image: JPEGImage, region: Region) -> JPEGImage:
     """
     Processes a IIIF region parameter which essentially involves cropping the image.
 
@@ -57,56 +47,34 @@ def process_region(image: JPEGImage, region: str) -> JPEGImage:
     :param region: the IIIF region parameter
     :return: a jpegtran JPEGImage object
     """
-    if region == 'full':
+    if region.full:
         # no crop required!
         return image
-
-    # cache these dimensions as jpegtran has to work to get them
-    width = image.width
-    height = image.height
-
-    if region == 'square':
-        if width < height:
-            # the image is portrait, we need to crop out a centre square the size of the width
-            crop = Crop(0, int((height - width) / 2), width, width)
-        elif width > height:
-            # the image is landscape, we need to crop out a centre square the size of the height
-            crop = Crop(int((width - height) / 2), 0, height, height)
-        else:
-            # the image is already square, return the whole thing
-            return image
-    else:
-        # the region parameter
-        crop = Crop(*map(int, region.split(',')))
 
     # jpegtran can't handle crops that don't have an origin divisible by 16 therefore we're going to
     # do the crop in pillow, however, we're going to crop down to the next lowest number below each
     # of x and y that is divisible by 16 using jpegtran and then crop off the remaining pixels in
     # pillow to get to the desired size. This is all for performance, jpegtran is so much quicker
     # than pillow hence it's worth this hassle
-    if crop.x % 16 or crop.y % 16:
+    if region.x % 16 or region.y % 16:
         # work out how far we need to shift the x and y to get to the next lowest numbers divisible
         # by 16
-        x_shift = crop.x % 16
-        y_shift = crop.y % 16
+        x_shift = region.x % 16
+        y_shift = region.y % 16
         # crop the image using the shifted x and y and the shifted width and height
-        image = image.crop(crop.x - x_shift, crop.y - y_shift, crop.w + x_shift, crop.h + y_shift)
-        # convert the jpegtran image object to a pillow image object
-        pillow_image = Image.open(io.BytesIO(image.as_blob()))
+        image = image.crop(region.x - x_shift, region.y - y_shift,
+                           region.w + x_shift, region.h + y_shift)
+        # now shift over to pillow for the final crop
+        pillow_image = to_pillow(image)
         # do the final crop to get us the desired size
-        pillow_image = pillow_image.crop((x_shift, y_shift, x_shift + crop.w, y_shift + crop.h))
-        # write the image to memory
-        output = io.BytesIO()
-        pillow_image.save(output, format='jpeg')
-        output.seek(0)
-        # read the image written out by pillow back in as a jpegtran JPEGImage object and return
-        return JPEGImage(blob=output.read())
+        pillow_image = pillow_image.crop((x_shift, y_shift, x_shift + region.w, y_shift + region.h))
+        return to_jpegtran(pillow_image)
     else:
         # if the crop has an origin divisible by 16 then we can just use jpegtran directly
-        return image.crop(*crop)
+        return image.crop(*region)
 
 
-def process_size(image: JPEGImage, size: str) -> JPEGImage:
+def process_size(image: JPEGImage, size: Size) -> JPEGImage:
     """
     Processes a IIIF size parameter which essentially involves resizing the image.
 
@@ -114,26 +82,63 @@ def process_size(image: JPEGImage, size: str) -> JPEGImage:
     :param size: the IIIF size parameter
     :return: a jpegtran JPEGImage object
     """
-    if size == 'max':
+    if size.max:
         return image
+    return image.downscale(size.w, size.h)
 
-    width = image.width
-    height = image.height
 
-    w, h = (float(v) if v != '' else v for v in size.split(','))
-    if h == '':
-        h = height * w / width
-    elif w == '':
-        w = width * h / height
+def process_rotation(image: JPEGImage, rotation: Rotation) -> JPEGImage:
+    """
+    Processes a IIIF rotation parameter which can involve mirroring and/or rotating.
 
-    w = int(w)
-    h = int(h)
+    :param image: a jpegtran JPEGImage object
+    :param rotation: the IIIF rotate parameter
+    :return: a jpegtran JPEGImage object
+    """
+    if rotation.mirror:
+        image = image.flip('horizontal')
+    if rotation.angle > 0:
+        # note that jpegtran can only do 90 degree rotations, if we want to support arbitrary
+        # rotation we'll have to use pillow/pywand
+        image = image.rotate(rotation.angle)
+    return image
 
-    if width < w or height < h:
-        raise HTTPError(status_code=400, reason='Size greater than extracted region without '
-                                                'specifying ^')
 
-    return image.downscale(w, h)
+def process_quality(image: JPEGImage, quality: Quality) -> JPEGImage:
+    """
+    Processes a IIIF quality parameter. This usually results in the same image being returned as was
+    passed in but can involve conversion to grayscale or pure black and white, single bit encoded
+    images.
+
+    :param image: a jpegtran JPEGImage object
+    :param quality: the IIIF quality parameter
+    :return: a jpegtran JPEGImage object
+    """
+    if quality == Quality.default or quality == Quality.color:
+        return image
+    if quality == Quality.gray:
+        # not sure why the grayscale function isn't exposed on the JPEGImage class but heyho, this
+        # does the same thing
+        return JPEGImage(blob=Transformation(image.as_blob()).grayscale())
+    if quality == Quality.bitonal:
+        # convert the image to just black and white using pillow
+        return to_jpegtran(to_pillow(image).convert('1'))
+
+
+def process_format(image: JPEGImage, fmt: Format, output_path: Path):
+    """
+    Processes the IIIF format parameter by writing the image to the output path in the requested
+    format.
+
+    :param image: a jpegtran JPEGImage object
+    :param fmt: the format to write the file in
+    :param output_path: the path to write the file to
+    """
+    with output_path.open('wb') as f:
+        if fmt == Format.jpg:
+            f.write(image.as_blob())
+        elif fmt == Format.png:
+            to_pillow(image).save(f, format='png')
 
 
 def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: mp.Queue,
@@ -159,20 +164,21 @@ def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: m
         # wait for tasks until we get a sentinel (in this case None)
         for task in iter(task_queue.get, None):
             try:
-                if task.image.name not in image_cache:
+                if task.source_path not in image_cache:
                     # the JPEGImage init function reads the entire source file into memory
-                    image_cache[task.image.name] = JPEGImage(task.image.source_path)
+                    image_cache[task.source_path] = JPEGImage(task.source_path)
 
-                image = image_cache[task.image.name]
-
-                image = process_region(image, task.region)
-                image = process_size(image, task.size)
+                image = image_cache[task.source_path]
+                image = process_region(image, task.ops.region)
+                image = process_size(image, task.ops.size)
+                image = process_rotation(image, task.ops.rotation)
+                image = process_quality(image, task.ops.quality)
 
                 # ensure the full cache path exists
                 task.output_path.parent.mkdir(parents=True, exist_ok=True)
+
                 # write the processed image to disk
-                with task.output_path.open('wb') as f:
-                    f.write(image.as_blob())
+                process_format(image, task.ops.format, task.output_path)
 
                 # put our worker id, the task and None on the result queue to indicate to the main
                 # process that it's done and we encountered no exceptions
@@ -222,7 +228,7 @@ class Worker:
         :param task: the Task object
         """
         self.queue_size += 1
-        self.predicted_cache[task.image.source_path] = True
+        self.predicted_cache[task.source_path] = True
         # this will almost always be instantaneous but does have the chance to block up the entire
         # asyncio thread
         self.task_queue.put(task)
@@ -253,7 +259,7 @@ class Worker:
         :param task: the task
         :return: True if the source path is warm on this worker or False if not
         """
-        return task.image.source_path in self.predicted_cache
+        return task.source_path in self.predicted_cache
 
 
 class ImageProcessingDispatcher:
@@ -262,9 +268,9 @@ class ImageProcessingDispatcher:
     """
 
     def __init__(self):
-        # keep a reference to the correct tornado io loop so that we can correctly call task
-        # completion callbacks from the result thread
-        self.loop = IOLoop.current()
+        # keep a reference to the correct asyncio loop so that we can correctly call task completion
+        # callbacks from the result thread
+        self.loop = asyncio.get_event_loop()
         # a dict of the Worker objects we're dispatching the requests to keyed by their worker ids
         self.workers = {}
         # a register of the processed image paths and tornado Event objects indicating whether they
@@ -284,7 +290,7 @@ class ImageProcessingDispatcher:
         main ayncio loop to notify all waiting coroutines.
         """
         for result in iter(self.result_queue.get, None):
-            self.loop.add_callback(self.finish_task, *result)
+            self.loop.call_soon_threadsafe(self.finish_task, *result)
 
     def init_workers(self, worker_count: int, worker_cache_size: int):
         """
@@ -384,3 +390,16 @@ class ImageProcessingDispatcher:
             worker.stop()
         self.result_queue.put(None)
         self.result_thread.join()
+
+    def get_status(self) -> dict:
+        """
+        Returns some basic stats info as a dict.
+
+        :return: a dict of stats
+        """
+        return {
+            'results_queue_size': self.result_queue.qsize(),
+            'worker_queue_sizes': {
+                worker.worker_id: worker.queue_size for worker in self.workers.values()
+            }
+        }

@@ -1,34 +1,26 @@
-import os
+#!/usr/bin/env python3
+# encoding: utf-8
+
 from PIL import Image
+from pathlib import Path
 
-from iiif.image import IIIFImage
+from iiif.config import Config
 
 
-def create_image_data(image, width, height):
+def create_image(config: Config, width: int, height: int, profile: str = 'test',
+                 name: str = 'image') -> Path:
     """
-    Create an image on disk using pillow at the image's source path with the given dimensions.
+    Create a real image file for testing and returns the path to it.
 
-    :param image: an IIIFImage instance
+    :param config: the config object
     :param width: the width of the image to create
     :param height: the height of the image to create
-    :return: the pillow Image object
+    :param profile: the profile name
+    :param name: the image name
+    :return: the path to the image
     """
-    os.makedirs(os.path.dirname(image.source_path), exist_ok=True)
+    path = config.source_path / profile / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     img = Image.new('RGB', (width, height), color='red')
-    img.save(image.source_path, format='jpeg')
-    return img
-
-
-def create_image(config, width, height, identifier='test:image'):
-    """
-    Create a test IIIFImage object and a real image file and return the IIIFImage object.
-
-    :param config: the config dict
-    :param width: the width of the image to create
-    :param height: the height of the image to create
-    :param identifier: the IIIF identifier to use for the image
-    :return: the IIIFImage object
-    """
-    image = IIIFImage(identifier, config['source_path'], config['cache_path'])
-    create_image_data(image, width, height)
-    return image
+    img.save(path, format='jpeg')
+    return path
