@@ -16,6 +16,7 @@ from functools import lru_cache
 from itertools import count
 from jpegtran import JPEGImage
 from lru import LRU
+from wand.exceptions import MissingDelegateError
 from wand.image import Image as WandImage
 
 
@@ -192,22 +193,33 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
     :param quality: the jpeg quality setting to use
     :param subsampling: the jpeg subsampling to use
     """
-    with WandImage(filename=str(image_path)) as image:
-        if image.format.lower() == 'jpeg':
-            # if it's a jpeg, remove the orientation exif tag. We do this because through trial and
-            # error it seems the dimensions provided by EMu are non-orientated and therefore we need
-            # to work on the images without their orientation too and serve them up without it
-            # otherwise things start to go awry
-            image.strip()
-        else:
-            image.format = 'jpeg'
+    try:
+        with WandImage(filename=str(image_path)) as image:
+            if image.format.lower() == 'jpeg':
+                # if it's a jpeg, remove the orientation exif tag. We do this because through trial
+                # and error it seems the dimensions provided by EMu are non-orientated and therefore
+                # we need to work on the images without their orientation too and serve them up
+                # without it otherwise things start to go awry
+                image.strip()
+            else:
+                image.format = 'jpeg'
 
-        image.compression_quality = quality
-        image.options['jpeg:sampling-factor'] = subsampling
+            image.compression_quality = quality
+            image.options['jpeg:sampling-factor'] = subsampling
 
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with target_path.open('wb') as f:
-            image.save(file=f)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with target_path.open('wb') as f:
+                image.save(file=f)
+    except MissingDelegateError:
+        with Image.open(image_path) as image:
+            if image.format.lower() == 'jpeg':
+                exif = image.getexif()
+                # this is the orientation tag, remove it if it's there
+                exif.pop(0x0112, None)
+                image.info['exif'] = exif.tobytes()
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
 
 
 def create_logger(name: str, level: Union[int, str]) -> logging.Logger:
