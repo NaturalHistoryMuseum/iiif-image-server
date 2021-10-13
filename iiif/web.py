@@ -34,10 +34,12 @@ async def on_shutdown():
 
 
 @app.get('/status')
-async def status() -> dict:
+async def status(full: bool = False) -> dict:
     """
     Returns the status of the server along with some stats about current resource usages.
 
+    :param full: boolean parameter indicating whether to provide a full status or just the
+                 essentials. The full status may take longer to generate. Default: False.
     :return: a dict
     """
     return {
@@ -45,7 +47,7 @@ async def status() -> dict:
         'default_profile': state.config.default_profile_name,
         'processing': state.dispatcher.get_status(),
         'profiles': {
-            profile.name: await profile.get_status()
+            profile.name: await profile.get_status(full)
             for profile in state.profiles.values()
         }
     }

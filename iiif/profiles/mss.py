@@ -363,13 +363,13 @@ class MSSProfile(AbstractProfile):
         self.ic_fast_pool.shutdown()
         self.ic_slow_pool.shutdown()
 
-    async def get_status(self) -> dict:
+    async def get_status(self, full: bool = False) -> dict:
         """
         Returns some nice stats about what the runners are up to and such.
 
         :return: a dict of stats
         """
-        status = await super().get_status()
+        status = await super().get_status(full)
         runners = (self.doc_runner, self.fetch_runner)
         status['runners'] = {
             runner.name: await runner.get_status() for runner in runners
