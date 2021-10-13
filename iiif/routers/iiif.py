@@ -55,23 +55,23 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
     # parse the IIIF parts of the request to assert parameter correctness and define what how we're
     # going to manipulate the image when we process it
     ops = parse_params(info, region, size, rotation, quality, fmt)
-
-    # this is a performance enhancement. By providing a hint at the size of the image we need to
-    # serve up, we can (sometimes!) use a smaller source image thus reducing processing time
-    if ops.region.full:
-        # the full image region is selected so we can take the hint from the size parameter
-        size_hint = (ops.size.w, ops.size.h)
-    else:
-        # a region has been specified, we'll have to use the whole thing
-        # TODO: can we do better than this?
-        size_hint = (ops.region.w, ops.region.h)
-
-    # ensure a source file is available to process, passing the hint
-    source_path = await profile.fetch_source(info, size_hint)
-
     output_path = state.config.cache_path / info.profile_name / info.name / ops.location
+
     # only do work if there is no cached version of the requested file
     if not output_path.exists():
+        # this is a performance enhancement. By providing a hint at the size of the image we need to
+        # serve up, we can (sometimes!) use a smaller source image thus reducing processing time
+        if ops.region.full:
+            # the full image region is selected so we can take the hint from the size parameter
+            size_hint = (ops.size.w, ops.size.h)
+        else:
+            # a region has been specified, we'll have to use the whole thing
+            # TODO: can we do better than this?
+            size_hint = (ops.region.w, ops.region.h)
+
+        # ensure a source file is available to process, passing the hint
+        source_path = await profile.fetch_source(info, size_hint)
+
         task = Task(source_path, output_path, ops)
         # submit the task to the dispatcher and wait for it to complete
         await state.dispatcher.submit(task)
