@@ -1,0 +1,27 @@
+# basic network configuration
+base_url: /media
+
+# paths
+cache_path: /base/cache
+source_path: /base/source
+
+# info.json settings
+min_sizes_size: 200
+info_cache_size: 1048576
+
+# image processing settings
+image_pool_size: 4
+image_cache_size_per_process: 5
+
+# size definitions for the quick access endpoints
+thumbnail_width: 500
+preview_width: 1500
+
+# original and batch download options
+download_chunk_size: 4096
+download_max_files: 20
+
+profiles:
+  example:
+    type: disk
+    rights: 'http://creativecommons.org/licenses/by/4.0/'
