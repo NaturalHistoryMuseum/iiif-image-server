@@ -61,7 +61,7 @@ class TestConvertImage:
         img.save(image_path, format='jpeg')
 
         target = tmp_path / 'converted'
-        convert_image(image_path, target, quality=40, subsampling=1)
+        convert_image(image_path, target, quality=40, subsampling='4:2:2')
 
         assert target.exists()
         with Image.open(target) as converted_image:
