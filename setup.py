@@ -36,7 +36,7 @@ test_dependencies = [
 
 setup(
     name="iiif-image-server",
-    version='1.0.0',
+    version='0.10.0',
     author='Natural History Museum',
     author_email='data@nhm.ac.uk',
     description="A media server primarily used by the NHM Data Portal",
