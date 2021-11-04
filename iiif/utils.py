@@ -9,6 +9,7 @@ from typing import Callable, Awaitable, Optional, Tuple, Union
 import humanize
 import io
 import logging
+import mimetypes
 import sys
 from PIL import Image
 from contextlib import contextmanager
@@ -18,6 +19,8 @@ from jpegtran import JPEGImage
 from lru import LRU
 from wand.exceptions import MissingDelegateError
 from wand.image import Image as WandImage
+
+mimetypes.init()
 
 
 class OnceRunner:
