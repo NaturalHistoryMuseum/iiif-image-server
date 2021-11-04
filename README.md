@@ -1,13 +1,10 @@
-# Data Portal Media Server
-[![Travis](https://img.shields.io/travis/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://travis-ci.org/NaturalHistoryMuseum/iiif-image-server)
+# IIIF Image Server
+[![Travis](https://img.shields.io/travis/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://travis-ci.com/NaturalHistoryMuseum/iiif-image-server)
 [![Coveralls](https://img.shields.io/coveralls/github/NaturalHistoryMuseum/iiif-image-server/master.svg?style=flat-square)](https://coveralls.io/github/NaturalHistoryMuseum/iiif-image-server)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 
-This is a media server for the NHM Data Portal.
-It currently just serves up images and can do IIIF too.
-
-Probably best not to use it for anything else at the moment as it has some hard coded assumptions
-based on locations of NHM assets and cannot be used generically yet.
+This is a IIIF image server primarily used by the [NHM Data Portal](https://data.nhm.ac.uk).
+The service uses FastAPI and asynchronous code throughout.
 
 ## OS Dependencies
 See `.travis.yml` for dependency install example on Ubuntu 18.04, generally though we need:
