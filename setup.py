@@ -35,14 +35,14 @@ test_dependencies = [
 ]
 
 setup(
-    name="data-portal-media-server",
+    name="iiif-image-server",
     version='1.0.0',
     author='Natural History Museum',
     author_email='data@nhm.ac.uk',
-    description="A media server for the Data Portal",
+    description="A media server primarily used by the NHM Data Portal",
     long_description=readme,
     long_description_content_type="text/markdown",
-    url="https://github.com/NaturalHistoryMuseum/data-portal-media-server/",
+    url="https://github.com/NaturalHistoryMuseum/iiif-image-server/",
     packages=find_packages(),
     install_requires=install_dependencies,
     dependency_links=[jpegtran_url],
