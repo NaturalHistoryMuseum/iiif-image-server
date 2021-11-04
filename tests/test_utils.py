@@ -8,7 +8,8 @@ import humanize
 import pytest
 from PIL import Image
 
-from iiif.utils import convert_image, generate_sizes, get_size, get_path_stats, OnceRunner
+from iiif.utils import convert_image, generate_sizes, get_size, get_path_stats, OnceRunner, \
+    get_mimetype
 from tests.utils import create_image
 
 
@@ -308,3 +309,12 @@ class TestOnceRunner:
         await runner.run('task1', asyncio.sleep, 1)
         stats = await runner.get_status()
         assert stats['size'] == 1
+
+
+class TestGetMimetype:
+
+    def test_normal(self):
+        assert get_mimetype('something.jpg') == 'image/jpeg'
+
+    def test_default(self):
+        assert get_mimetype('unknown') == 'application/octet-stream'
