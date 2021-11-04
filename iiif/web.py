@@ -37,6 +37,7 @@ async def on_shutdown():
 async def status(full: bool = False) -> dict:
     """
     Returns the status of the server along with some stats about current resource usages.
+    \f
 
     :param full: boolean parameter indicating whether to provide a full status or just the
                  essentials. The full status may take longer to generate. Default: False.

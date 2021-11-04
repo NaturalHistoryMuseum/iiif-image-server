@@ -42,6 +42,7 @@ async def zip_originals(identifiers: str, stop_on_error: bool = True,
     the config.
 
     Any requested identifiers that can't be found are simply not included in the downloaded zip.
+    \f
 
     :param identifiers: a comma separated list of identifiers (<profile name>:<name>) and/or just
                         names in which case the default profile is used

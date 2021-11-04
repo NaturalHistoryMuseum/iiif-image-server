@@ -17,6 +17,7 @@ async def get_image_info(identifier: str) -> ORJSONResponse:
 
     The profile and the name must match valid configurations from the config file to work. Together
     they must be unique.
+    \f
 
     :param identifier: the image identifier
     :return: the info.json as a dict
@@ -40,6 +41,7 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
 
     The profile and the name must match valid configurations from the config file to work. Together
     they must be unique.
+    \f
 
     :param identifier: the image identifier
     :param region: the rectangular portion of the underlying image content to be returned
