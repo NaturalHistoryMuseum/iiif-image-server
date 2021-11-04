@@ -274,3 +274,16 @@ def to_jpegtran(image: Image) -> JPEGImage:
     image.save(output, format='jpeg')
     output.seek(0)
     return JPEGImage(blob=output.read())
+
+
+def get_mimetype(filename: Union[str, Path]) -> str:
+    """
+    Given a filename, guesses the mime type and returns it. If no sensible guess can be made then
+    application/octet-stream is returned.
+
+    :param filename: the name of the file
+    :return: a mime type
+    """
+    guess = mimetypes.guess_type(filename)[0]
+    # use octet stream as the default
+    return guess if guess is not None else 'application/octet-stream'

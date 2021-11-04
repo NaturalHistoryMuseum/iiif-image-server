@@ -5,6 +5,7 @@ from starlette.responses import FileResponse
 from iiif.ops import IIIF_LEVEL, parse_params
 from iiif.processing import Task
 from iiif.state import state
+from iiif.utils import get_mimetype
 
 router = APIRouter()
 
@@ -83,4 +84,4 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
         'cache-control': f'max-age={profile.cache_for}',
         'link': f'<http://iiif.io/api/image/3/{IIIF_LEVEL}.json>;rel="profile"'
     }
-    return FileResponse(output_path, headers=headers)
+    return FileResponse(output_path, media_type=get_mimetype(output_path), headers=headers)
