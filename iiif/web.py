@@ -4,6 +4,7 @@
 from PIL import Image
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 
 from iiif.routers import iiif, originals, simple
 from iiif.state import state
@@ -34,7 +35,7 @@ async def on_shutdown():
 
 
 @app.get('/status')
-async def status(full: bool = False) -> dict:
+async def status(full: bool = False) -> ORJSONResponse:
     """
     Returns the status of the server along with some stats about current resource usages.
     \f
@@ -43,7 +44,7 @@ async def status(full: bool = False) -> dict:
                  essentials. The full status may take longer to generate. Default: False.
     :return: a dict
     """
-    return {
+    body = {
         'status': ':)',
         'default_profile': state.config.default_profile_name,
         'processing': state.dispatcher.get_status(),
@@ -52,6 +53,7 @@ async def status(full: bool = False) -> dict:
             for profile in state.profiles.values()
         }
     }
+    return ORJSONResponse(body, headers={'cache-control': 'no-store'})
 
 
 # order matters here btw!
