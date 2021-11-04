@@ -207,6 +207,7 @@ class Worker:
         :param cache_size: the requested size of the worker's image cache
         """
         self.worker_id = worker_id
+        self.name = str(worker_id)
 
         # create a multiprocessing Queue for just this worker's tasks
         self.task_queue = mp.Queue()
@@ -400,6 +401,6 @@ class ImageProcessingDispatcher:
         return {
             'results_queue_size': self.result_queue.qsize(),
             'worker_queue_sizes': {
-                worker.worker_id: worker.queue_size for worker in self.workers.values()
+                worker.name: worker.queue_size for worker in self.workers.values()
             }
         }
