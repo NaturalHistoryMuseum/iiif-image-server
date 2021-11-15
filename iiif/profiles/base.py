@@ -137,9 +137,9 @@ class AbstractProfile(abc.ABC):
         :return: the generated or cached info.json dict for the image
         """
         # if the image's info.json isn't cached, create and add the complete info.json to the cache
-        if info.name not in self.info_json_cache:
+        if info not in self.info_json_cache:
             id_url = f'{self.config.base_url}/{info.identifier}'
-            self.info_json_cache[info.name] = {
+            self.info_json_cache[info] = {
                 '@context': 'http://iiif.io/api/image/3/context.json',
                 'id': id_url,
                 # mirador/openseadragon seems to need this to work even though I don't think it's
@@ -162,7 +162,7 @@ class AbstractProfile(abc.ABC):
                 'maxHeight': info.height,
             }
 
-        return self.info_json_cache[info.name]
+        return self.info_json_cache[info]
 
     async def close(self):
         """
