@@ -116,7 +116,9 @@ def parse_size(size: str, region: Region) -> Size:
                 h = region.h * w / region.w
             elif w == '':
                 w = region.w * h / region.h
-            return Size(round(w), round(h), max=(w == region.w and h == region.h))
+
+            if w <= region.w and h <= region.h:
+                return Size(round(w), round(h), max=(w == region.w and h == region.h))
 
     raise invalid_iiif_parameter('Size', size)
 
