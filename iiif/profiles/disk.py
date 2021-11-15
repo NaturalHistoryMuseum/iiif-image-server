@@ -72,7 +72,7 @@ class OnDiskProfile(AbstractProfile):
         :return: yields chunks of bytes
         """
         source_path = self._get_source(name)
-        if source_path is not None:
+        if source_path.exists():
             try:
                 async with aiofiles.open(file=str(source_path), mode='rb') as f:
                     while True:
