@@ -70,7 +70,7 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
         else:
             # a region has been specified, we'll have to use the whole thing
             # TODO: can we do better than this?
-            size_hint = (ops.region.w, ops.region.h)
+            size_hint = None
 
         # ensure a source file is available to process, passing the hint
         source_path = await profile.fetch_source(info, size_hint)
