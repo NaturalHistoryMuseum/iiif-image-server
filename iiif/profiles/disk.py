@@ -25,8 +25,7 @@ class OnDiskProfile(AbstractProfile):
         if not source.exists():
             return None
         else:
-            size = get_size(self._get_source(name))
-            return ImageInfo(self.name, name, *size)
+            return ImageInfo(self.name, name, *get_size(source))
 
     async def fetch_source(self, info: ImageInfo,
                            target_size: Optional[Tuple[int, int]] = None) -> Optional[Path]:
