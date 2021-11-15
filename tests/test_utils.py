@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
+import asyncio
 from collections import Counter, defaultdict
 
-import asyncio
 import humanize
 import pytest
 from PIL import Image
+from jpegtran import JPEGImage
 
 from iiif.utils import convert_image, generate_sizes, get_size, get_path_stats, OnceRunner, \
-    get_mimetype
+    get_mimetype, parse_identifier, to_pillow, to_jpegtran
 from tests.utils import create_image
 
 
@@ -318,3 +319,16 @@ class TestGetMimetype:
 
     def test_default(self):
         assert get_mimetype('unknown') == 'application/octet-stream'
+
+
+def test_parse_identifier():
+    assert parse_identifier('beans:goats') == ('beans', 'goats')
+    assert parse_identifier('goats') == (None, 'goats')
+
+
+def test_to_pillow_and_to_jpegtran():
+    pillow_image = Image.new('RGB', (100, 400), color='red')
+    jpegtran_image = to_jpegtran(pillow_image)
+    assert isinstance(jpegtran_image, JPEGImage)
+    pillow_image_again = to_pillow(jpegtran_image)
+    assert isinstance(pillow_image_again, Image.Image)
