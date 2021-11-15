@@ -29,7 +29,7 @@ class Region:
             return f'{self.x}_{self.y}_{self.w}_{self.h}'
 
 
-def parse_regions(region: str, info: ImageInfo) -> Region:
+def parse_region(region: str, info: ImageInfo) -> Region:
     """
     Given a region parameter, parse it into a Region object. If the region parameter is invalid, an
     exception is thrown.
@@ -220,7 +220,7 @@ def parse_params(info: ImageInfo, region: str = 'full', size: str = 'max', rotat
     :param fmt: the format parameter
     :return: a IIIFOps object
     """
-    parsed_region = parse_regions(region, info)
+    parsed_region = parse_region(region, info)
     return IIIFOps(
         parsed_region,
         parse_size(size, parsed_region),
