@@ -87,7 +87,10 @@ class Size:
     max: bool = False
 
     def __str__(self):
-        return f'{self.w}_{self.h}'
+        if self.max:
+            return 'max'
+        else:
+            return f'{self.w}_{self.h}'
 
 
 # TODO: make this level 2 compliant
