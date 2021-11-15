@@ -68,7 +68,7 @@ def parse_region(region: str, info: ImageInfo) -> Region:
             x, y, w, h = map(round, map(float, parts))
 
             # check the basics of the region are allowable
-            if 0 <= x <= info.width and 0 <= y <= info.height and w > 0 and h > 0:
+            if 0 <= x < info.width and 0 <= y < info.height and w > 0 and h > 0:
                 # now bring any out of bounds values back in bounds
                 if x + w > info.width:
                     w = info.width - x
