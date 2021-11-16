@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, AsyncMock
 
 import orjson
 import pytest
+from contextlib import asynccontextmanager
 
 from iiif.profiles import MSSProfile
 from iiif.profiles.mss import MSSImageInfo
@@ -56,7 +57,8 @@ def create_es_mss_doc(doc):
     return orjson.dumps(es_doc)
 
 
-def mock_mss_profile(config, assoc_media_count, mss_doc, aps_is_ok):
+@asynccontextmanager
+async def mock_mss_profile(config, assoc_media_count, mss_doc, aps_is_ok):
     profile = MSSProfile('test', config, 'http://creativecommons.org/licenses/by/4.0/', [''], '', 1,
                          1, ['collections'])
 
@@ -69,6 +71,7 @@ def mock_mss_profile(config, assoc_media_count, mss_doc, aps_is_ok):
 
     mss_get_mock = AsyncMock(return_value=MagicMock(ok=aps_is_ok))
 
+    original_sessions = (profile.es_session, profile.mss_session, profile.dm_session)
     profile.es_session = MagicMock(
         get=MagicMock(return_value=MagicMock(__aenter__=es_get_mock)),
         post=MagicMock(return_value=MagicMock(__aenter__=es_post_mock))
@@ -77,7 +80,10 @@ def mock_mss_profile(config, assoc_media_count, mss_doc, aps_is_ok):
         get=MagicMock(return_value=MagicMock(__aenter__=mss_get_mock)),
     )
 
-    return profile
+    yield profile
+
+    profile.es_session, profile.mss_session, profile.dm_session = original_sessions
+    await profile.close()
 
 
 # TODO: write more and better mss profile tests
@@ -92,12 +98,12 @@ class TestMSSProfileGetInfo:
             'width': 4000,
             'height': 1600,
         }
-        profile = mock_mss_profile(config, 1, mss_doc, True)
-        info = await profile.get_info('1234')
-        assert info is not None
-        assert info.name == '1234'
-        assert info.size == (4000, 1600)
-        assert info.original == 'beans.tiff'
+        async with mock_mss_profile(config, 1, mss_doc, True) as profile:
+            info = await profile.get_info('1234')
+            assert info is not None
+            assert info.name == '1234'
+            assert info.size == (4000, 1600)
+            assert info.original == 'beans.tiff'
 
     @pytest.mark.asyncio
     async def test_missing_collections_doc(self, config):
@@ -107,9 +113,9 @@ class TestMSSProfileGetInfo:
             'width': 4000,
             'height': 1600,
         }
-        profile = mock_mss_profile(config, 0, mss_doc, True)
-        info = await profile.get_info('1234')
-        assert info is None
+        async with mock_mss_profile(config, 0, mss_doc, True) as profile:
+            info = await profile.get_info('1234')
+            assert info is None
 
     @pytest.mark.asyncio
     async def test_aps_denies(self, config):
@@ -119,15 +125,15 @@ class TestMSSProfileGetInfo:
             'width': 4000,
             'height': 1600,
         }
-        profile = mock_mss_profile(config, 1, mss_doc, False)
-        info = await profile.get_info('1234')
-        assert info is None
+        async with mock_mss_profile(config, 1, mss_doc, False) as profile:
+            info = await profile.get_info('1234')
+            assert info is None
 
     @pytest.mark.asyncio
     async def test_missing_mss_doc(self, config):
-        profile = mock_mss_profile(config, 1, None, True)
-        info = await profile.get_info('1234')
-        assert info is None
+        async with mock_mss_profile(config, 1, None, True) as profile:
+            info = await profile.get_info('1234')
+            assert info is None
 
     @pytest.mark.asyncio
     async def test_missing_size(self, config):
@@ -135,9 +141,9 @@ class TestMSSProfileGetInfo:
             'id': 1234,
             'file': 'beans.tiff',
         }
-        profile = mock_mss_profile(config, 1, mss_doc, True)
-        source_path = create_image(config, 140, 504, 'mss', '1234')
-        profile.fetch_source = AsyncMock(return_value=source_path)
-        info = await profile.get_info('1234')
-        assert info is not None
-        assert info.size == (140, 504)
+        async with mock_mss_profile(config, 1, mss_doc, True) as profile:
+            source_path = create_image(config, 140, 504, 'mss', '1234')
+            profile.fetch_source = AsyncMock(return_value=source_path)
+            info = await profile.get_info('1234')
+            assert info is not None
+            assert info.size == (140, 504)
