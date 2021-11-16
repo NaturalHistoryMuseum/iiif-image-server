@@ -76,10 +76,9 @@ class OnDiskProfile(AbstractProfile):
                 async with aiofiles.open(file=str(source_path), mode='rb') as f:
                     while True:
                         chunk = await f.read(chunk_size)
-                        if chunk:
-                            yield chunk
-                        else:
+                        if not chunk:
                             break
+                        yield chunk
             except Exception as e:
                 if raise_errors:
                     raise e
