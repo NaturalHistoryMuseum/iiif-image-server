@@ -79,7 +79,24 @@ class TestParseSize:
         size = parse_size('pct:20', full_region)
         assert size == Size(800, 1200, max=False)
 
-    @pytest.mark.parametrize('size', ['', '10,50,40', '10', '10,10,0,0', '7000,', ',9000'])
+    invalid_scenarios = [
+        # blank
+        '',
+        # too many options
+        '10,50,40',
+        # too few options
+        '10',
+        # too many options
+        '10,10,0,0',
+        # upscaling
+        '7000,',
+        # upscaling
+        ',9000',
+        # upscaling
+        '10000, 12000',
+    ]
+
+    @pytest.mark.parametrize('size', invalid_scenarios)
     def test_invalid(self, full_region, size):
         with pytest.raises(HTTPException) as exc_info:
             parse_size(size, full_region)

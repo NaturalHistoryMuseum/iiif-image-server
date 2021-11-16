@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+from unittest.mock import patch
 
 import hashlib
+import os
 import pytest
+import yaml
 from starlette.testclient import TestClient
-from unittest.mock import patch, MagicMock
 
-from iiif.web import app
 from tests.utils import create_image
 
 
 @pytest.fixture
-def test_client(config):
-    with patch('iiif.web.load_config', MagicMock(return_value=config)):
+def test_client(config, tmp_path):
+    config_path = tmp_path / 'config.yml'
+    with config_path.open('w') as f:
+        yaml.dump(config.raw, f)
+    with patch.dict(os.environ, {'IIIF_CONFIG': str(config_path)}):
+        from iiif.web import app
         with TestClient(app) as client:
             yield client
 
@@ -79,25 +84,12 @@ def test_unrecognised_profile(test_client, config):
     assert response.status_code == 404
 
 
-def test_unsupported_iiif_features(test_client, config):
-    profile = 'test'
-    name = 'image'
-    create_image(config, 400, 500, profile, name)
-
-    response = test_client.get(f'/{profile}:{name}/full/max/90/default.jpg')
-    assert response.status_code == 404
-
-    response = test_client.get(f'/{profile}:{name}/full/max/90/bitonal.jpg')
-    assert response.status_code == 404
-
-
 def test_missing_image(test_client, config):
-    assert 'test' in config.profiles
     response = test_client.get('/test:anything/info.json')
     assert response.status_code == 404
 
 
 def test_too_many_images_download(test_client, config):
     size = config.download_max_files + 1
-    response = test_client.get(f'/originals?names={",".join(map(str, range(size)))}')
+    response = test_client.get(f'/originals?identifiers={",".join(map(str, range(size)))}')
     assert response.status_code == 400

@@ -10,8 +10,9 @@ from iiif.config import Config
 def config(tmp_path):
     return Config(
         base_url='http://localhost',
-        source_path=tmp_path / 'source',
-        cache_path=tmp_path / 'cache',
+        source_path=str(tmp_path / 'source'),
+        cache_path=str(tmp_path / 'cache'),
+        default_profile='test',
         profiles={
             'test': {
                 'type': 'disk',
