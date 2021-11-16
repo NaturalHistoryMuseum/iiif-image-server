@@ -37,9 +37,19 @@ class TestParseRegion:
         region = parse_region('3000,5000,5000,5000', info)
         assert region == Region(3000, 5000, 1000, 1000, full=False)
 
-    def test_level1_regionSquare(self, info: ImageInfo):
+    def test_level1_regionSquare_portrait(self, info: ImageInfo):
         region = parse_region('square', info)
         assert region == Region(0, 1000, 4000, 4000, full=False)
+
+    def test_level1_regionSquare_landscape(self):
+        info = ImageInfo('test', 'image1', 6000, 4000)
+        region = parse_region('square', info)
+        assert region == Region(1000, 0, 4000, 4000, full=False)
+
+    def test_level1_regionSquare_already(self):
+        info = ImageInfo('test', 'image1', 4000, 4000)
+        region = parse_region('square', info)
+        assert region == Region(0, 0, 4000, 4000, full=True)
 
     def test_level2_regionByPct(self, info: ImageInfo):
         region = parse_region('pct:10,10,90,90', info)
