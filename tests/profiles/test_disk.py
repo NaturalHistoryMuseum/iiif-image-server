@@ -65,14 +65,20 @@ class TestOnDiskProfile:
 
     @pytest.mark.asyncio
     async def test_stream_original_with_file(self, config, disk_profile):
-        count = 0
         path = create_image(config, 10000, 10000, 'test', 'image')
         size = path.stat().st_size
         chunk_size = 1024
         expected_count = int(math.ceil(size / chunk_size))
-        async for _ in disk_profile.stream_original('image', chunk_size=chunk_size):
+
+        count = 0
+        data = b''
+        async for chunk in disk_profile.stream_original('image', chunk_size=chunk_size):
             count += 1
+            data += chunk
+
         assert count == expected_count
+        with path.open('rb') as f:
+            assert f.read() == data
 
     @pytest.mark.asyncio
     async def test_stream_original_with_file_errors_on(self, config, disk_profile):
