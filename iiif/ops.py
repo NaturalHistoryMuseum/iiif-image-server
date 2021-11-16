@@ -108,17 +108,30 @@ def parse_size(size: str, region: Region) -> Size:
     if size == 'max':
         return Size(region.w, region.h, max=True)
 
-    parts = size.split(',')
-    if len(parts) == 2:
-        with suppress(ValueError):
-            w, h = (float(part) if part != '' else part for part in parts)
-            if h == '':
-                h = region.h * w / region.w
-            elif w == '':
-                w = region.w * h / region.h
+    w = None
+    h = None
 
-            if w <= region.w and h <= region.h:
-                return Size(round(w), round(h), max=(w == region.w and h == region.h))
+    parts = size.split(',')
+    if len(parts) == 1:
+        if parts[0].startswith('pct:'):
+            with suppress(ValueError):
+                percentage = float(parts[0][4:]) / 100
+                w = region.w * percentage
+                h = region.h * percentage
+    elif len(parts) == 2:
+        with suppress(ValueError):
+            if any(parts):
+                w, h = (float(part) if part != '' else part for part in parts)
+                if h == '':
+                    h = region.h * w / region.w
+                elif w == '':
+                    w = region.w * h / region.h
+
+    if w and h:
+        w = round(w)
+        h = round(h)
+        if 0 < w <= region.w and 0 < h <= region.h:
+            return Size(w, h, max=(w == region.w and h == region.h))
 
     raise invalid_iiif_parameter('Size', size)
 

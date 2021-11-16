@@ -84,14 +84,22 @@ class TestParseSize:
         size = parse_size('190,568', full_region)
         assert size == Size(190, 568, max=False)
 
-    @pytest.mark.skip
     def test_level2_sizeByPct(self, full_region: Region):
-        size = parse_size('pct:20', full_region)
-        assert size == Size(800, 1200, max=False)
+        size = parse_size('pct:23.673', full_region)
+        assert size == Size(947, 1420, max=False)
+
+    def test_level2_sizeByPct_max(self, full_region: Region):
+        size = parse_size('pct:100', full_region)
+        assert size == Size(full_region.w, full_region.h, max=True)
+
+    def test_level2_sizeByPct_max_rounding(self, full_region: Region):
+        size = parse_size('pct:99.999', full_region)
+        assert size == Size(full_region.w, full_region.h, max=True)
 
     invalid_scenarios = [
         # blank
         '',
+        ',',
         # too many options
         '10,50,40',
         # too few options
@@ -104,6 +112,13 @@ class TestParseSize:
         ',9000',
         # upscaling
         '10000, 12000',
+        # upscaling with percentages
+        'pct:110',
+        # 0s
+        'pct:0',
+        '0,0',
+        '0,100',
+        '100,0',
     ]
 
     @pytest.mark.parametrize('size', invalid_scenarios)
