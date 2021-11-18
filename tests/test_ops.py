@@ -271,4 +271,4 @@ def test_rotation_str():
 
 def test_level():
     # check we're level 2 baby
-    assert IIIF_LEVEL == 'level2'
+    assert IIIF_LEVEL == 2

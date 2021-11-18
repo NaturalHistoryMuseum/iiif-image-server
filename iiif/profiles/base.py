@@ -127,7 +127,7 @@ class AbstractProfile(abc.ABC):
         """
         pass
 
-    async def generate_info_json(self, info: ImageInfo, iiif_level: str) -> dict:
+    async def generate_info_json(self, info: ImageInfo, iiif_level: int) -> dict:
         """
         Generates an info.json dict for the given image. The info.json is cached locally in this
         profile's attributes.
@@ -150,7 +150,7 @@ class AbstractProfile(abc.ABC):
                 'width': info.width,
                 'height': info.height,
                 'rights': self.rights,
-                'profile': iiif_level,
+                'profile': f'level{iiif_level}',
                 'tiles': [
                     {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
                     {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},

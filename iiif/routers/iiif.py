@@ -28,7 +28,7 @@ async def get_image_info(identifier: str) -> ORJSONResponse:
     # add a cache-control header and iiif header
     headers = {
         'cache-control': f'max-age={profile.cache_for}',
-        'link': f'<http://iiif.io/api/image/3/{IIIF_LEVEL}.json>;rel="profile"'
+        'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"'
     }
     return ORJSONResponse(content=info_json, headers=headers)
 
@@ -82,6 +82,6 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
     # add a cache-control header and iiif header
     headers = {
         'cache-control': f'max-age={profile.cache_for}',
-        'link': f'<http://iiif.io/api/image/3/{IIIF_LEVEL}.json>;rel="profile"'
+        'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"'
     }
     return FileResponse(output_path, media_type=get_mimetype(output_path), headers=headers)

@@ -8,7 +8,7 @@ from iiif.exceptions import invalid_iiif_parameter
 from iiif.profiles.base import ImageInfo
 
 # this server currently supports IIIF level1
-IIIF_LEVEL = 'level2'
+IIIF_LEVEL = 2
 
 
 @dataclass

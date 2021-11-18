@@ -51,7 +51,7 @@ def test_image_info_handler(test_client, config):
     assert info['type'] == 'ImageService3'
     assert info['protocol'] == 'http://iiif.io/api/image'
     assert info['rights'] == 'http://creativecommons.org/licenses/by/4.0/'
-    assert info['profile'] == IIIF_LEVEL
+    assert info['profile'] == f'level{IIIF_LEVEL}'
     assert info['width'] == 400
     assert info['height'] == 500
     assert info['maxWidth'] == 400
