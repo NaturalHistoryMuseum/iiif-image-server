@@ -96,6 +96,26 @@ class TestParseSize:
         size = parse_size('pct:99.999', full_region)
         assert size == Size(full_region.w, full_region.h, max=True)
 
+    def test_level2_sizeByConfinedWh_1(self, full_region: Region):
+        size = parse_size('!568,901', full_region)
+        assert size == Size(568, 852, max=False)
+
+    def test_level2_sizeByConfinedWh_2(self, full_region: Region):
+        size = parse_size('!400,600', full_region)
+        assert size == Size(400, 600, max=False)
+
+    def test_level2_sizeByConfinedWh_3(self, full_region: Region):
+        size = parse_size('!4000,6000', full_region)
+        assert size == Size(4000, 6000, max=True)
+
+    def test_level2_sizeByConfinedWh_4(self, full_region: Region):
+        size = parse_size('!123,5783', full_region)
+        assert size == Size(123, 184, max=False)
+
+    def test_level2_sizeByConfinedWh_5(self, full_region: Region):
+        size = parse_size('!225,100', Region(0, 0, 200, 133))
+        assert size == Size(150, 100, max=False)
+
     invalid_scenarios = [
         # blank
         '',

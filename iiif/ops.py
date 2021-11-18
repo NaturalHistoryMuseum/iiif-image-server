@@ -19,6 +19,10 @@ class Region:
     h: int
     full: bool = False
 
+    @property
+    def ratio(self):
+        return self.w / self.h
+
     def __iter__(self):
         yield from [self.x, self.y, self.w, self.h]
 
@@ -93,7 +97,6 @@ class Size:
             return f'{self.w}_{self.h}'
 
 
-# TODO: make this level 2 compliant
 def parse_size(size: str, region: Region) -> Size:
     """
     Given a size parameter, parse it into a Size object. If the size parameter is invalid, an
@@ -120,12 +123,23 @@ def parse_size(size: str, region: Region) -> Size:
                 h = region.h * percentage
     elif len(parts) == 2:
         with suppress(ValueError):
-            if any(parts):
-                w, h = (float(part) if part != '' else part for part in parts)
-                if h == '':
-                    h = region.h * w / region.w
-                elif w == '':
-                    w = region.w * h / region.h
+            if size.startswith('!'):
+                confined_w = float(parts[0][1:])
+                confined_h = float(parts[1])
+                # try using the confined width first
+                w = confined_w
+                h = confined_w / region.ratio
+                if h > confined_h:
+                    # if the result exceeds the confined height, confine by height instead
+                    w = confined_h * region.ratio
+                    h = confined_h
+            else:
+                if any(parts):
+                    w, h = (float(part) if part != '' else part for part in parts)
+                    if h == '':
+                        h = region.h * w / region.w
+                    elif w == '':
+                        w = region.w * h / region.h
 
     if w and h:
         w = round(w)
