@@ -270,5 +270,5 @@ def test_rotation_str():
 
 
 def test_level():
-    # until we do level 2 for size we're stuck at level1
-    assert IIIF_LEVEL == 'level1'
+    # check we're level 2 baby
+    assert IIIF_LEVEL == 'level2'
