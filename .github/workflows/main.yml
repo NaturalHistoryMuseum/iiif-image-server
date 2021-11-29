@@ -2,7 +2,6 @@ name: Tests
 
 on:
   push:
-  # allows us to run this workflow manually
   workflow_dispatch:
 
 jobs:
@@ -18,7 +17,6 @@ jobs:
           - '3.10'
 
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - name: Checkout source code
         uses: actions/checkout@v2
 
