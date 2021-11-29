@@ -47,18 +47,15 @@ class Config:
 def load_config() -> Config:
     """
     Load the configuration and return it. The configuration must be a yaml file and will be loaded
-    from either the path specified by the IIIF_CONFIG env var or by looking for the file in the
-    folder above the location of this script. The env var takes priority.
+    from the path specified by the IIIF_CONFIG env var.
 
     :return: a new Config object
     """
     env_path = os.environ.get('IIIF_CONFIG')
-    if env_path is not None:
-        config_path = Path(env_path)
-    else:
-        # no env var, just load the config file from the folder above this script's location
-        config_path = Path(__file__).parent.parent / 'config.yml'
+    if env_path is None:
+        raise Exception('The config path was not set using env var IIIF_CONFIG')
 
+    config_path = Path(env_path)
     if not config_path.exists():
         raise Exception(f'The config path "{config_path}" does not exist :(')
 

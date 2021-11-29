@@ -18,10 +18,8 @@ def test_load_with_env_var(tmp_path: Path, config: Config):
 
 
 def test_load_with_path(config: Config):
-    loaded_config = load_config()
-    with open(Path(__file__).parent.parent / 'config.yml') as f:
-        raw = yaml.safe_load(f)
-    assert loaded_config.raw == raw
+    with pytest.raises(Exception, match='IIIF_CONFIG'):
+        load_config()
 
 
 def test_load_missing_path():
