@@ -3,7 +3,8 @@
 [![Coveralls](https://img.shields.io/coveralls/github/NaturalHistoryMuseum/iiif-image-server/main.svg?style=flat-square)](https://coveralls.io/github/NaturalHistoryMuseum/iiif-image-server)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 
-This is a IIIF image server primarily used by the [NHM Data Portal](https://data.nhm.ac.uk).
+This is a IIIF image server primarily used by the [NHM Data Portal](https://data.nhm.ac.uk) which implements the IIIF
+[Image API](https://iiif.io/api/image/3.0/) to [level 3](https://iiif.io/api/image/3.0/compliance/) compliance.
 The service uses FastAPI and asynchronous code throughout.
 
 ## Architecture
