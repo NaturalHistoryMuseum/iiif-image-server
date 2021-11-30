@@ -10,9 +10,9 @@ from typing import Any, Optional
 
 import multiprocessing as mp
 import random
+from cachetools import LRUCache
 from jpegtran import JPEGImage
 from jpegtran.lib import Transformation
-from lru import LRU
 from threading import Thread
 
 from iiif.ops import IIIFOps, Region, Size, Rotation, Quality, Format
@@ -158,7 +158,7 @@ def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: m
     :param result_queue: a multiprocessing Queue to put the completed Task objects on
     :param cache_size: the size to use for the LRU cache for loaded source images
     """
-    image_cache = LRU(cache_size)
+    image_cache = LRUCache(cache_size)
 
     try:
         # wait for tasks until we get a sentinel (in this case None)
@@ -219,7 +219,7 @@ class Worker:
         # the time the last task on the task queue is processed and therefore allows us to use it as
         # a heuristic when determining which worker to assign a task (we want to hit the image cache
         # as much as possible!)
-        self.predicted_cache = LRU(cache_size)
+        self.predicted_cache = LRUCache(cache_size)
         self.process.start()
 
     def add(self, task: Task):

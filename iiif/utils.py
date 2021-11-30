@@ -12,11 +12,11 @@ import logging
 import mimetypes
 import sys
 from PIL import Image
+from cachetools import LRUCache
 from contextlib import contextmanager
 from functools import lru_cache
 from itertools import count
 from jpegtran import JPEGImage
-from lru import LRU
 from wand.exceptions import MissingDelegateError
 from wand.image import Image as WandImage
 
@@ -37,7 +37,7 @@ class OnceRunner:
                                   raises an exception. Pass 0 to never try the task again (default).
         """
         self.name = name
-        self.results = LRU(size=size)
+        self.results = LRUCache(size)
         self.exception_timeout = exception_timeout
         self.waiting = 0
         self.working = 0
