@@ -70,7 +70,6 @@ Each profile has a unique name which is used in the identifier (see `Identifiers
 value which describes indicates the base type of the profile (e.g. `disk`), and then some extra
 source-specific options.
 
-### Profile Types
 There are currently 2 types of profile which are described next.
 
 All profile types have some common configuration options:
@@ -82,7 +81,7 @@ All profile types have some common configuration options:
 | `log_level` | The log level for any logging produced from this profile | 'WARNING' |
 | `cache_for` | Value to set in the `cache-control` header passed back with any image data responses from this profile. The value is appended to the string `"max-age="` and therefore the easiest way to set this value is as the number of seconds to cache the image for in seconds | 0 |
 
-#### disk
+### disk
 Use this source when the images are on disk already, in the `source_path`.
 
 Example types config:
@@ -100,10 +99,10 @@ The names of the files must match the name part of the identifier, i.e. a reques
 `project1:banana` will look for a source file at `{source_path}/project1/banana` and
 fail if it is not found.
 
-##### Options
+#### Options
 There are no additional `disk` specific options.
 
-#### mss
+### mss
 This profile type is only usable by internal NHM systems on the Data Portal (and hence
 needs to be moved into like a plugin or something out of this repo...).
 Use this source when the images are stored in the NHM's MSS.
@@ -120,7 +119,7 @@ profiles:
     url: http://example.com/storage/images/{name}.jpg
 ```
 
-##### Options
+#### Options
 See https://github.com/NaturalHistoryMuseum/iiif-image-server/blob/main/iiif/profiles/mss.py#L64 for the MSS profile options.
 
 
