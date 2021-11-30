@@ -41,5 +41,3 @@ jobs:
 
       - name: Run coveralls
         run: coveralls
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
