@@ -30,8 +30,8 @@ class Config:
         self.image_cache_size_per_process = options.get('image_cache_size_per_process', 5)
 
         # size definitions for the quick access endpoints
-        self.thumbnail_width = options.get('thumbnail_width', 500)
-        self.preview_width = options.get('preview_width', 1500)
+        self.thumbnail_width = options.get('thumbnail_width', 512)
+        self.preview_width = options.get('preview_width', 2048)
 
         # original and batch download options
         self.download_chunk_size = options.get('download_chunk_size', 4096)
