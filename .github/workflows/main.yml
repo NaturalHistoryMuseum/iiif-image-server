@@ -40,6 +40,6 @@ jobs:
         run: pytest --cov=iiif
 
       - name: Run coveralls
-        run: coveralls
+        run: coveralls --service=github
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
