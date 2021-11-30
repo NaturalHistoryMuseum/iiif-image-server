@@ -7,12 +7,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-18.04
-    strategy:
-      matrix:
-        python-version:
-          - '3.8'
-          - '3.9'
-          - '3.10'
 
     steps:
       - name: Checkout source code
@@ -27,37 +21,25 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.8'
           architecture: x64
 
       - name: Update pip
         run: pip install -U pip
 
       - name: Install Python test package dependencies
-        run: pip install pytest-cov
+        run: pip install pytest-cov coveralls
 
       - name: Install IIIF Image Server
         run: pip install .
-        
+
       - name: Install IIIF Image Server test packages
         run: pip install ".[test]"
 
       - name: Run tests
         run: pytest --cov=iiif
 
-      - name: Coveralls parallel
-        uses: coverallsapp/github-action@master
+      - name: Run coveralls
+        run: coveralls
         with:
-          github-token: ${{ secrets.github_token }}
-          flag-name: run-${{ matrix.python-version }}
-          parallel: true
-
-  finish:
-    needs: test
-    runs-on: ubuntu-18.04
-    steps:
-    - name: Coveralls finished
-      uses: coverallsapp/github-action@master
-      with:
-        github-token: ${{ secrets.github_token }}
-        parallel-finished: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
