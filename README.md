@@ -5,7 +5,7 @@
 
 This is a IIIF image server primarily used by the [NHM Data Portal](https://data.nhm.ac.uk) which implements the IIIF
 [Image API](https://iiif.io/api/image/3.0/) to [level 3](https://iiif.io/api/image/3.0/compliance/) compliance.
-The service uses FastAPI and asynchronous code throughout.
+The service uses FastAPI, asynchronous code and process pools to deliver images from disparate sources.
 
 ## Architecture
 This server is written using Python's asyncio framework and FastAPI.
