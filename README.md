@@ -6,14 +6,6 @@
 This is a IIIF image server primarily used by the [NHM Data Portal](https://data.nhm.ac.uk).
 The service uses FastAPI and asynchronous code throughout.
 
-## OS Dependencies
-See the `Dockerfile` for dependency install example on Ubuntu 18.04, generally though we need:
-
-    - python3.8 (probably works on 3.6+)
-    - cffi
-    - libjpeg8
-    - libcurl
-
 ## Architecture
 This server is written using Python's asyncio framework and FastAPI.
 Image data requests start by being handled by FastAPI but if any image processing is required to
@@ -22,7 +14,15 @@ Python's multiprocessing libraries are used to facilitate this with image operat
 handled by a fixed size pool of workers.
 This approach ensures we can keep control of resource usage (i.e. RAM and CPU).
 
-## jpegtran-cffi
+### OS Dependencies
+See the `Dockerfile` for dependency install example on Ubuntu 18.04, generally though we need:
+
+    - python3.8 (probably works on 3.6+)
+    - cffi
+    - libjpeg8
+    - libcurl
+
+### jpegtran-cffi
 [https://github.com/jbaiter/jpegtran-cffi](https://github.com/jbaiter/jpegtran-cffi) is used to work
 with JPEG images efficiently.
 It provides rapid operations on JPEG images by using the JPEG turbo C libs to do the heavy lifting
@@ -37,6 +37,10 @@ This format is intended support two pieces of functionality:
     - it namespaces the names so that they only have to be unique within their profile
 
 See the config section for more information about configuring profiles.
+
+If `default_profile` is specified in the config then the `<profile>:` part of the identifier is optional
+if you are trying to access an image from the default profile (i.e. if the default profile is set to `xyz`,
+`/xyz:20/info.json` and `/20/info.json` will resolve the same image.
 
 ## Config
 
@@ -57,7 +61,7 @@ All configuration options are required, there are no defaults.
 | `default_profile` | The name of the profile which should be used as the default if no profile name is included in an identifier, for example `/abc:1` uses the profile named `abc`, if `default_profile: abc` then `/1` will also use `abc`. | 'mss' |
 | `profiles` | Defines the supported profiles on this server, see the section below for details | {} |
 
-### Profiles
+## Profiles
 The profiles system allows the server to serve up images from multiple different sources whilst
 maintaining control.
 Only profiles defined in this section of the config will be supported by the server.
@@ -66,7 +70,7 @@ Each profile has a unique name which is used in the identifier (see `Identifiers
 value which describes indicates the base type of the profile (e.g. `disk`), and then some extra
 source-specific options.
 
-#### Profile Types
+### Profile Types
 There are currently 2 types of profile which are described next.
 
 All profile types have some common configuration options:
@@ -78,7 +82,7 @@ All profile types have some common configuration options:
 | `log_level` | The log level for any logging produced from this profile | 'WARNING' |
 | `cache_for` | Value to set in the `cache-control` header passed back with any image data responses from this profile. The value is appended to the string `"max-age="` and therefore the easiest way to set this value is as the number of seconds to cache the image for in seconds | 0 |
 
-##### disk
+#### disk
 Use this source when the images are on disk already, in the `source_path`.
 
 Example types config:
@@ -96,10 +100,10 @@ The names of the files must match the name part of the identifier, i.e. a reques
 `project1:banana` will look for a source file at `{source_path}/project1/banana` and
 fail if it is not found.
 
-###### Options
+##### Options
 There are no additional `disk` specific options.
 
-##### mss
+#### mss
 This profile type is only usable by internal NHM systems on the Data Portal (and hence
 needs to be moved into like a plugin or something out of this repo...).
 Use this source when the images are stored in the NHM's MSS.
@@ -116,7 +120,7 @@ profiles:
     url: http://example.com/storage/images/{name}.jpg
 ```
 
-###### Options
+##### Options
 See https://github.com/NaturalHistoryMuseum/iiif-image-server/blob/main/iiif/profiles/mss.py#L64 for the MSS profile options.
 
 
