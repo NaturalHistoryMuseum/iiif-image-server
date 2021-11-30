@@ -3,7 +3,7 @@ from typing import Tuple, Optional, Any, Union, AsyncIterable
 
 import abc
 import logging
-from lru import LRU
+from cachetools import LRUCache
 
 from iiif.config import Config
 from iiif.utils import get_path_stats, generate_sizes, create_logger
@@ -72,7 +72,7 @@ class AbstractProfile(abc.ABC):
         self.rights = rights
         self.source_path.mkdir(exist_ok=True)
         self.cache_path.mkdir(exist_ok=True)
-        self.info_json_cache = LRU(info_json_cache_size)
+        self.info_json_cache = LRUCache(info_json_cache_size)
         self.cache_for = cache_for
         self.logger = create_logger(name, log_level)
 
