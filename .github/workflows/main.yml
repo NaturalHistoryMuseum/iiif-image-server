@@ -12,9 +12,6 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v2
 
-      - name: Install thing
-        run: sudo add-apt-repository universe
-
       - name: Install OS dependencies
         run: sudo apt-get -y install libffi-dev libturbojpeg0-dev libjpeg-dev libpcre3 libpcre3-dev libcurl4-openssl-dev libssl-dev build-essential libmagickwand-dev
 
@@ -31,9 +28,6 @@ jobs:
         run: pip install pytest-cov coveralls
 
       - name: Install IIIF Image Server
-        run: pip install .
-
-      - name: Install IIIF Image Server test packages
         run: pip install ".[test]"
 
       - name: Run tests
