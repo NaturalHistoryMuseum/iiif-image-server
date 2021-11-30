@@ -28,10 +28,11 @@ install_dependencies = [
     'wand~=0.6.7',
 ]
 test_dependencies = [
-    'pytest~=5.4.1',
-    'pytest-asyncio~=0.11.0',
-    'pytest-cov~=2.11.1',
-    'requests~=2.25.1',
+    'pytest',
+    'pytest-asyncio',
+    'pytest-cov',
+    # needed by starlette's test client
+    'requests',
 ]
 
 setup(
@@ -51,6 +52,8 @@ setup(
     },
     classifiers=[
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     ],
 )
