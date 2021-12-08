@@ -260,12 +260,7 @@ class MSSProfile(AbstractProfile):
         """
 
         async def get_doc() -> Optional[dict]:
-            # first, check with mss that the irn is valid
-            async with self.mss_session.get(f'{self.mss_url}/{name}') as response:
-                if not response.ok:
-                    return None
-
-            # next, check that we have a document in the mss index
+            # first, check that we have a document in the mss index
             doc_url = f'{next(self.es_hosts)}/{self.mss_index}/_doc/{name}'
             async with self.es_session.get(doc_url) as response:
                 text = await response.text(encoding='utf-8')
@@ -273,7 +268,7 @@ class MSSProfile(AbstractProfile):
                 if not info['found']:
                     return None
 
-            # finally, check that the irn is associated with a record in the collection datasets
+            # next, check that the irn is associated with a record in the collection datasets
             count_url = f'{next(self.es_hosts)}/{self.collection_indices}/_count'
             search = Search() \
                 .filter('term', **{'data.associatedMedia._id': name}) \
@@ -281,6 +276,11 @@ class MSSProfile(AbstractProfile):
             async with self.es_session.post(count_url, json=search.to_dict()) as response:
                 text = await response.text(encoding='utf-8')
                 if orjson.loads(text)['count'] == 0:
+                    return None
+
+            # finally, check with mss that the irn is valid
+            async with self.mss_session.get(f'{self.mss_url}/{name}') as response:
+                if not response.ok:
                     return None
 
             # if we get here then all 3 checks have passed
