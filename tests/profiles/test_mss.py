@@ -3,7 +3,7 @@
 
 from unittest.mock import MagicMock, AsyncMock
 
-import orjson
+import json
 import pytest
 from contextlib import asynccontextmanager
 
@@ -54,7 +54,7 @@ def create_es_mss_doc(doc):
         es_doc = {'found': False}
     else:
         es_doc = {'found': True, '_source': doc}
-    return orjson.dumps(es_doc)
+    return json.dumps(es_doc)
 
 
 @asynccontextmanager
@@ -63,7 +63,7 @@ async def mock_mss_profile(config, assoc_media_count, mss_doc, aps_is_ok):
                          1, ['collections'])
 
     count_doc = {'count': assoc_media_count}
-    es_post_mock_response = AsyncMock(text=AsyncMock(return_value=orjson.dumps(count_doc)))
+    es_post_mock_response = AsyncMock(text=AsyncMock(return_value=json.dumps(count_doc)))
     es_post_mock = AsyncMock(return_value=es_post_mock_response)
 
     es_get_mock_response = AsyncMock(text=AsyncMock(return_value=create_es_mss_doc(mss_doc)))
