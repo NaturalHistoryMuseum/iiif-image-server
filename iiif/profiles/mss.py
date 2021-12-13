@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 import aiocron as aiocron
 import aiohttp
-import orjson
+import json
 import shutil
 import tempfile
 import time
@@ -264,7 +264,7 @@ class MSSProfile(AbstractProfile):
             doc_url = f'{next(self.es_hosts)}/{self.mss_index}/_doc/{name}'
             async with self.es_session.get(doc_url) as response:
                 text = await response.text(encoding='utf-8')
-                info = orjson.loads(text)
+                info = json.loads(text)
                 if not info['found']:
                     return None
 
@@ -275,7 +275,7 @@ class MSSProfile(AbstractProfile):
                 .filter('term', **{'meta.versions': int(time.time() * 1000)})
             async with self.es_session.post(count_url, json=search.to_dict()) as response:
                 text = await response.text(encoding='utf-8')
-                if orjson.loads(text)['count'] == 0:
+                if json.loads(text)['count'] == 0:
                     return None
 
             # finally, check with mss that the irn is valid
