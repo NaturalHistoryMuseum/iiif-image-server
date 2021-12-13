@@ -21,7 +21,6 @@ install_dependencies = [
     'fastapi~=0.63.0',
     'humanize~=3.4.1',
     f'jpegtran-cffi @ {jpegtran_url}',
-    'orjson~=3.5.2',
     'pillow~=8.2.0',
     'pyyaml~=5.4.1',
     'uvicorn[standard]~=0.13.4',

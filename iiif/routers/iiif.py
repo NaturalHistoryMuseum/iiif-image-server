@@ -1,6 +1,5 @@
 from fastapi import APIRouter
-from fastapi.responses import ORJSONResponse
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, JSONResponse
 
 from iiif.ops import IIIF_LEVEL, parse_params
 from iiif.processing import Task
@@ -11,7 +10,7 @@ router = APIRouter()
 
 
 @router.get('/{identifier}/info.json')
-async def get_image_info(identifier: str) -> ORJSONResponse:
+async def get_image_info(identifier: str) -> JSONResponse:
     """
     IIIF image info endpoint compliant with the specification:
     https://iiif.io/api/image/3.0/#22-image-information-request-uri-syntax.
@@ -30,7 +29,7 @@ async def get_image_info(identifier: str) -> ORJSONResponse:
         'cache-control': f'max-age={profile.cache_for}',
         'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"'
     }
-    return ORJSONResponse(content=info_json, headers=headers)
+    return JSONResponse(content=info_json, headers=headers)
 
 
 @router.get('/{identifier}/{region}/{size}/{rotation}/{quality}.{fmt}')
