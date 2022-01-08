@@ -28,11 +28,12 @@ class MSSImageInfo(ImageInfo):
     def __init__(self, profile_name: str, name: str, doc: dict):
         """
         :param profile_name: the name of the profile
-        :param name: the name of the image, this will be EMu IRN
+        :param name: the name of the image, this will be a GUID
         :param doc: the image's doc from the elasticsearch MSS index
         """
         super().__init__(profile_name, name, doc.get('width', None), doc.get('height', None))
         self.doc = doc
+        self.emu_irn = doc['id']
         # the name of the original file as it appears on SCALE
         self.original = doc['file']
         # a list of the EMu generated derivatives of the original file. The list should already be
@@ -170,12 +171,12 @@ class MSSProfile(AbstractProfile):
 
     async def get_info(self, name: str) -> Optional[MSSImageInfo]:
         """
-        Given an image name (an EMu IRN) returns a MSSImageInfo object or None if the image can't be
+        Given an image name (a GUID) returns a MSSImageInfo object or None if the image can't be
         found/isn't allowed to be accessed. If the image doesn't have width and height stored in the
         elasticsearch index for whatever reason then the image will be retrieved and the size
         extracted.
 
-        :param name: the EMu IRN of the image
+        :param name: the GUID of the image
         :return: an MSSImageInfo instance or None
         """
         doc = await self.get_mss_doc(name)
@@ -220,7 +221,7 @@ class MSSProfile(AbstractProfile):
 
         async def download():
             with tempfile.NamedTemporaryFile() as f:
-                async for chunk in self._fetch_file(info.name, file, is_original):
+                async for chunk in self._fetch_file(info.emu_irn, file, is_original):
                     f.write(chunk)
                 f.flush()
 
@@ -245,15 +246,16 @@ class MSSProfile(AbstractProfile):
 
     async def get_mss_doc(self, name: str, refresh: bool = False) -> Optional[dict]:
         """
-        Retrieves a MSS doc and ensures it's should be accessible. For a doc to be returned instead
+        Retrieves an MSS doc and ensures it's should be accessible. For a doc to be returned instead
         of None:
 
-            - the EMu IRN must be valid according the to MSS (i.e. the APS)
-            - the doc must exist in the mss index in elasticsearch
-            - the EMu IRN (i.e. the name) must be found in either the specimen, index lot or
+            - the GUID (i.e. the name) must be unique and exist in the mss elasticsearch index
+            - the EMu IRN that the GUID maps to must be valid according the to the MSS (specifically
+              the APS)
+            - the GUID (i.e. the name) must be found in either the specimen, index lot or
               artefacts indices as an associated media item
 
-        :param name: the image name (the EMu IRN)
+        :param name: the image name (a GUID)
         :param refresh: whether to enforce a refresh of the doc from elasticsearch rather than using
                         the cache
         :return: the mss doc as a dict or None
@@ -261,17 +263,22 @@ class MSSProfile(AbstractProfile):
 
         async def get_doc() -> Optional[dict]:
             # first, check that we have a document in the mss index
-            doc_url = f'{next(self.es_hosts)}/{self.mss_index}/_doc/{name}'
-            async with self.es_session.get(doc_url) as response:
+            search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
+            search = Search().filter('term', **{'guid.keyword': name})
+            async with self.es_session.post(search_url, json=search.to_dict()) as response:
                 text = await response.text(encoding='utf-8')
-                info = json.loads(text)
-                if not info['found']:
+                result = json.loads(text)
+                if result['hits']['total'] == 1:
+                    doc = result['hits']['hits'][0]['_source']
+                    emu_irn = doc['id']
+                else:
+                    # TODO: might be nice to indicate if the GUID is not unique?
                     return None
 
             # next, check that the irn is associated with a record in the collection datasets
             count_url = f'{next(self.es_hosts)}/{self.collection_indices}/_count'
             search = Search() \
-                .filter('term', **{'data.associatedMedia._id': name}) \
+                .filter('term', **{'data.associatedMedia._id': emu_irn}) \
                 .filter('term', **{'meta.versions': int(time.time() * 1000)})
             async with self.es_session.post(count_url, json=search.to_dict()) as response:
                 text = await response.text(encoding='utf-8')
@@ -279,12 +286,12 @@ class MSSProfile(AbstractProfile):
                     return None
 
             # finally, check with mss that the irn is valid
-            async with self.mss_session.get(f'{self.mss_url}/{name}') as response:
+            async with self.mss_session.get(f'{self.mss_url}/{emu_irn}') as response:
                 if not response.ok:
                     return None
 
             # if we get here then all 3 checks have passed
-            return info['_source']
+            return doc
 
         if refresh:
             self.doc_runner.expire(name)
@@ -314,25 +321,25 @@ class MSSProfile(AbstractProfile):
         doc = await self.get_mss_doc(name)
         if doc is not None:
             try:
-                async for chunk in self._fetch_file(name, doc['file'], True, chunk_size):
+                async for chunk in self._fetch_file(doc['id'], doc['file'], True, chunk_size):
                     yield chunk
             except Exception as e:
                 if raise_errors:
                     raise e
 
-    async def _fetch_file(self, name: str, file: str, is_original: bool, chunk_size: int = 4096):
+    async def _fetch_file(self, emu_irn: str, file: str, is_original: bool, chunk_size: int = 4096):
         """
         Fetches a file from MSS or, if the file is the original and doesn't exist in MSS, the old
         dams servers. Once a source for the requested file is located, the bytes are yielded in
         chunks of chunk_size.
 
-        :param name: the name of the file (the EMu IRN)
+        :param emu_irn: the EMu IRN of the multimedia record for the file
         :param file: the name of the file to retrieve
         :param is_original: whether the file is an original image (if it is and the file doesn't
                             exist in MSS we'll try looking for a damsurl file)
         """
         async with AsyncExitStack() as stack:
-            file_url = f'{self.mss_url}/{name}/{quote(file)}'
+            file_url = f'{self.mss_url}/{emu_irn}/{quote(file)}'
             response = await stack.enter_async_context(self.mss_session.get(file_url))
 
             if response.status == 401:
@@ -340,7 +347,7 @@ class MSSProfile(AbstractProfile):
 
             if response.status == 404 and is_original:
                 # check for a damsurl file
-                damsurl_file = f'{self.mss_url}/{name}/damsurl'
+                damsurl_file = f'{self.mss_url}/{emu_irn}/damsurl'
                 response = await stack.enter_async_context(self.mss_session.get(damsurl_file))
                 response.raise_for_status()
 
