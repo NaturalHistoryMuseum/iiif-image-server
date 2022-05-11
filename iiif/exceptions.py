@@ -15,7 +15,8 @@ logger = uvicorn_logger.getChild('iiif')
 class IIIFServerException(Exception):
 
     def __init__(self, public: str, status_code: int = 500, log: Optional[str] = None,
-                 level: int = logging.WARNING, cause: Optional[Exception] = None):
+                 level: int = logging.WARNING, cause: Optional[Exception] = None,
+                 use_public_as_log: bool = True):
         super().__init__(public)
         self.status_code = status_code
         self.public = public
@@ -27,7 +28,7 @@ class IIIFServerException(Exception):
         else:
             if self.cause is not None:
                 self.log = f'An error occurred: {self.cause}'
-            else:
+            elif use_public_as_log:
                 self.log = self.public
 
 
@@ -63,8 +64,8 @@ class TooManyImages(IIIFServerException):
 class InvalidIIIFParameter(IIIFServerException):
 
     def __init__(self, name: str, value: str, *args, **kwargs):
-        super().__init__(f'Invalid IIIF option: {name} value "{value}" is invalid', 400, *args,
-                         **kwargs)
+        super().__init__(f'Invalid IIIF option: {name} value "{value}" is invalid', 400,
+                         use_public_as_log=False, *args, **kwargs)
         self.name = name
         self.value = value
 
