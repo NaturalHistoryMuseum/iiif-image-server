@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from dataclasses import dataclass
-
 import asyncio
-import humanize
 import pytest
 from PIL import Image
+from dataclasses import dataclass
 from jpegtran import JPEGImage
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from wand.exceptions import MissingDelegateError
 
-from iiif.utils import convert_image, generate_sizes, get_size, get_path_stats, get_mimetype, \
-    parse_identifier, to_pillow, to_jpegtran, Locker, FetchCache, Fetchable
+from iiif.utils import convert_image, generate_sizes, get_size, get_mimetype, parse_identifier, \
+    to_pillow, to_jpegtran, Locker, FetchCache, Fetchable
 from tests.utils import create_image, create_file
 
 
@@ -133,31 +131,6 @@ mss_base_url_scenarios = [
     ('9217', '9/217'),
     ('2389749823', '2389749/823'),
 ]
-
-
-def test_get_path_stats(tmp_path):
-    total = 0
-    count = 0
-    for i in range(10):
-        with (tmp_path / f'{i}.text').open('w') as f:
-            total += f.write('beans!')
-            count += 1
-        (tmp_path / f'{i}').mkdir()
-        with (tmp_path / f'{i}' / f'{i}.text').open('w') as f:
-            total += f.write('beans again!')
-            count += 1
-
-    stats = get_path_stats(tmp_path)
-    assert stats['count'] == count
-    assert stats['size_bytes'] == total
-    assert stats['size_pretty'] == humanize.naturalsize(total, binary=True)
-
-
-def test_get_path_stats_empty(tmp_path):
-    stats = get_path_stats(tmp_path / 'empty')
-    assert stats['count'] == 0
-    assert stats['size_bytes'] == 0
-    assert stats['size_pretty'] == humanize.naturalsize(0, binary=True)
 
 
 class TestGetMimetype:

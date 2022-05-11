@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Tuple, Optional, Any, AsyncIterable
 
 from iiif.config import Config
-from iiif.utils import get_path_stats, generate_sizes
+from iiif.utils import generate_sizes
 
 
 class ImageInfo:
