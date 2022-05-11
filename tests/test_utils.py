@@ -205,7 +205,7 @@ class TestFetchCache:
         await asyncio.sleep(cache.ttl + 0.5)
         assert not path.exists()
         assert fetchable.store_path not in cache
-        assert not path.parent.exist()
+        assert not path.parent.exists()
 
 
 class TestLocker:
