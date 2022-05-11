@@ -210,7 +210,7 @@ class MSSProfile(AbstractProfile):
         if size is None:
             size = info.size
         file = info.choose_file(size)
-        source = MSSSourceFile(str(info.emu_irn), file, info.original == file)
+        source = MSSSourceFile(info.emu_irn, file, info.original == file)
         async with self.store.use(source) as path:
             yield path
 
@@ -282,7 +282,7 @@ class MSSProfile(AbstractProfile):
         """
         try:
             doc = await self.get_mss_doc(name)
-            source = MSSSourceFile(doc['id'], doc['file'], True, chunk_size)
+            source = MSSSourceFile(int(doc['id']), doc['file'], True, chunk_size)
             async for chunk in self.store.stream(source):
                 yield chunk
         except Exception as e:
