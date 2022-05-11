@@ -76,6 +76,6 @@ async def handler(request: Request, exception: IIIFServerException) -> JSONRespo
     return JSONResponse(
         status_code=exception.status_code,
         content={
-            "error": exception.public
+            'error': exception.public
         },
     )
