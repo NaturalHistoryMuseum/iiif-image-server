@@ -5,7 +5,6 @@ import json
 import logging
 import shutil
 import tempfile
-import time
 from cachetools import TTLCache
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -23,14 +22,6 @@ from iiif.exceptions import Timeout, IIIFServerException, ImageNotFound
 from iiif.profiles.base import AbstractProfile, ImageInfo
 from iiif.utils import Locker, convert_image, create_client_session, FetchCache, Fetchable
 from iiif.utils import get_size
-
-
-class MissingCollectionRecord(ImageNotFound):
-
-    def __init__(self, profile: str, name: str, emu_irn: int):
-        super().__init__(profile, name, log=f"Couldn't find collection record associated with "
-                                            f"multimedia IRN {emu_irn} [guid: {name}]")
-        self.emu_irn = emu_irn
 
 
 class MSSAccessDenied(ImageNotFound):
@@ -98,7 +89,6 @@ class MSSProfile(AbstractProfile):
                  config: Config,
                  rights: str,
                  es_hosts: List[str],
-                 collection_indices: List[str],
                  mss_url: str,
                  mss_ssl: bool = True,
                  mss_index: str = 'mss',
@@ -122,7 +112,6 @@ class MSSProfile(AbstractProfile):
         :param config: the Config object
         :param rights: the rights url for images served by this profile
         :param es_hosts: a list of elasticsearch hosts to use
-        :param collection_indices: the indices to search to confirm the images can be accessed
         :param mss_url: mss base url
         :param mss_ssl: boolean indicating whether ssl certificates should be checked when making
                         requests to mss
@@ -155,7 +144,7 @@ class MSSProfile(AbstractProfile):
         self.get_mss_doc_locker = Locker(default_timeout=info_lock_ttl)
         self.mss_doc_cache = TTLCache(maxsize=info_cache_size, ttl=info_cache_ttl)
 
-        self.es_handler = MSSElasticsearchHandler(es_hosts, collection_indices, es_limit, mss_index)
+        self.es_handler = MSSElasticsearchHandler(es_hosts, es_limit, mss_index)
         self.store = MSSSourceStore(self.source_path, mss_url, source_cache_size,
                                     source_cache_ttl, mss_limit, dams_limit, mss_ssl,
                                     dams_ssl, convert_slow_pool_size, convert_fast_pool_size,
@@ -232,8 +221,6 @@ class MSSProfile(AbstractProfile):
             - the GUID (i.e. the name) must be unique and exist in the mss elasticsearch index
             - the EMu IRN that the GUID maps to must be valid according the to the MSS (specifically
               the APS)
-            - the GUID (i.e. the name) must be found in either the specimen, index lot or
-              artefacts indices as an associated media item
 
         :param name: the image name (a GUID)
         :return: the mss doc as a dict or None
@@ -257,13 +244,7 @@ class MSSProfile(AbstractProfile):
 
                     emu_irn = int(doc['id'])
 
-                    # TODO: I think we can get rid of this requirement now that we're using GUIDs
-                    #       instead of irns - you can't guess a GUID
-                    # check if there's an associated collection record
-                    if not await self.es_handler.has_collection_record(emu_irn):
-                        raise MissingCollectionRecord(self.name, name, emu_irn)
-
-                    # finally, check with mss that the irn is valid
+                    # check with mss that the irn is valid
                     if not await self.store.check_access(emu_irn):
                         raise MSSAccessDenied(self.name, name, emu_irn)
 
@@ -321,18 +302,15 @@ class MSSElasticsearchHandler:
     Class that handles requests to Elasticsearch for the MSS profile.
     """
 
-    def __init__(self, es_hosts: List[str], collection_indices: List[str], limit: int = 20,
-                 mss_index: str = 'mss'):
+    def __init__(self, es_hosts: List[str], limit: int = 20, mss_index: str = 'mss'):
         """
         :param es_hosts: a list of elasticsearch hosts to use
-        :param collection_indices: the indices to search to confirm the images can be accessed
         :param limit: the maximum number of simultaneous connections that can be made to
                          elasticsearch
         :param mss_index: the MSS index name in elasticsearch
         """
         self.es_hosts = cycle(es_hosts)
         self.es_session = create_client_session(limit, ssl=False)
-        self.collection_indices = ','.join(collection_indices)
         self.mss_index = mss_index
 
     async def get_mss_doc(self, guid: str) -> Tuple[int, Optional[dict]]:
@@ -350,21 +328,6 @@ class MSSElasticsearchHandler:
             total = result['hits']['total']
             first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
             return total, first_doc
-
-    async def has_collection_record(self, emu_irn: int) -> bool:
-        """
-        Check whether the given image IRN is associated with a collection record.
-
-        :param emu_irn: the EMu IRN
-        :return: True if it is, False if not
-        """
-        count_url = f'{next(self.es_hosts)}/{self.collection_indices}/_count'
-        search = Search() \
-            .filter('term', **{'data.associatedMedia._id': emu_irn}) \
-            .filter('term', **{'meta.versions': int(time.time() * 1000)})
-        async with self.es_session.post(count_url, json=search.to_dict()) as response:
-            text = await response.text(encoding='utf-8')
-            return json.loads(text)['count'] > 0
 
     async def close(self):
         await self.es_session.close()

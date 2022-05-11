@@ -53,10 +53,9 @@ def test_mss_choose_file_with_derivatives():
     assert info.choose_file((2000, 4000)) == 'original.tif'
 
 
-def create_profile(config: Config, mss_doc: Union[Exception, dict], has_record: bool,
-                   mss_valid: bool, image: Union[Exception, Path], **kwargs) -> MSSProfile:
+def create_profile(config: Config, mss_doc: Union[Exception, dict], mss_valid: bool,
+                   image: Union[Exception, Path], **kwargs) -> MSSProfile:
     mock_es_handler = MagicMock(
-        has_collection_record=AsyncMock(return_value=has_record),
         close=AsyncMock()
     )
     if isinstance(mss_doc, Exception):
@@ -113,7 +112,7 @@ class TestGetInfo:
 
     async def test_no_source_required(self, config):
         mss_doc = create_mss_doc(7, 'image.jpg', 200, 300)
-        profile = create_profile(config, mss_doc, True, True, Exception('should not need this'))
+        profile = create_profile(config, mss_doc, True, Exception('should not need this'))
         info = await profile.get_info('the_name')
         assert info.emu_irn == 7
         assert info.width == 200
@@ -124,7 +123,7 @@ class TestGetInfo:
     async def test_source_required(self, config):
         mss_doc = create_mss_doc(7, 'image.jpg')
         image_path = create_image(config, 200, 300)
-        profile = create_profile(config, mss_doc, True, True, image_path)
+        profile = create_profile(config, mss_doc, True, image_path)
         info = await profile.get_info('the_name')
         assert info.emu_irn == 7
         assert info.width == 200
@@ -135,14 +134,14 @@ class TestGetInfo:
     async def test_doc_error(self, config):
         image = create_image(config, 200, 300)
         exception = Exception('narp')
-        profile = create_profile(config, exception, True, True, image)
+        profile = create_profile(config, exception, True, image)
         with pytest.raises(ImageNotFound) as exc_info1:
             await profile.get_info('the_name')
         assert exc_info1.value.cause is exception
 
     async def test_cache(self, config):
         mss_doc = create_mss_doc(7, 'image.jpg', 200, 300)
-        profile = create_profile(config, mss_doc, True, True, Exception('should not need this'))
+        profile = create_profile(config, mss_doc, True, Exception('should not need this'))
         with patch.object(profile, 'get_mss_doc', wraps=profile.get_mss_doc):
             await profile.get_info('the_name')
             assert profile.get_mss_doc.call_count == 1
@@ -152,7 +151,7 @@ class TestGetInfo:
     async def test_source_error(self, config):
         mss_doc = create_mss_doc(7, 'image.jpg')
         exception = Exception('errrrooorr!')
-        profile = create_profile(config, mss_doc, True, True, exception)
+        profile = create_profile(config, mss_doc, True, exception)
         with pytest.raises(ImageNotFound) as exc_info:
             await profile.get_info('the_name')
         assert exc_info.value.cause is exception
@@ -160,7 +159,7 @@ class TestGetInfo:
     async def test_get_size_error(self, config):
         mss_doc = create_mss_doc(7, 'image.jpg')
         image = create_image(config, 200, 300)
-        profile = create_profile(config, mss_doc, True, True, image)
+        profile = create_profile(config, mss_doc, True, image)
         exception = Exception('nope!')
         with patch('iiif.profiles.mss.get_size', MagicMock(side_effect=exception)):
             with pytest.raises(ImageNotFound) as exc_info:
@@ -169,7 +168,7 @@ class TestGetInfo:
 
 
 async def test_close(config):
-    profile = create_profile(config, Exception('meh'), True, True, Exception('meh'))
+    profile = create_profile(config, Exception('meh'), True, Exception('meh'))
     await profile.close()
     profile.es_handler.close.assert_called_once()
     profile.store.close.assert_called_once()
