@@ -19,8 +19,6 @@ from typing import Optional, Tuple, Union, Any
 from wand.exceptions import MissingDelegateError, ImageError
 from wand.image import Image as WandImage
 
-from iiif.exceptions import IIIFServerException
-
 mimetypes.init()
 
 # this is all assuming we're using uvicorn...
@@ -377,24 +375,17 @@ class FetchCache(abc.ABC):
             if path in self._cleaners:
                 self._cleaners.pop(path).cancel()
             elif not path.exists():
-                try:
-                    async with self._locker.acquire(path, timeout=self.fetch_timeout):
-                        await self._fetch(fetchable)
-                        self._sizes[path] = path.stat().st_size
-                        self.total_size += self._sizes[path]
+                async with self._locker.acquire(path, timeout=self.fetch_timeout):
+                    await self._fetch(fetchable)
+                    self._sizes[path] = path.stat().st_size
+                    self.total_size += self._sizes[path]
 
-                        times = 0
-                        while self._cleaners and self.total_size > self.max_size and times < 10:
-                            path_to_clean_up, handle = self._cleaners.popitem(last=False)
-                            handle.cancel()
-                            self._clean_up(path_to_clean_up)
-                            times += 1
-                except Exception as cause:
-                    self.errors += 1
-                    e = IIIFServerException(
-                        f'An error occurred while fetching {fetchable.public_name}', cause=cause
-                    )
-                    raise e from cause
+                    times = 0
+                    while self._cleaners and self.total_size > self.max_size and times < 10:
+                        path_to_clean_up, handle = self._cleaners.popitem(last=False)
+                        handle.cancel()
+                        self._clean_up(path_to_clean_up)
+                        times += 1
 
         self._in_use[path] += 1
         try:
