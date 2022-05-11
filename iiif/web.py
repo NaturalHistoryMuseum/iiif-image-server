@@ -67,7 +67,7 @@ async def status() -> JSONResponse:
     body = {
         'status': ':)',
         'default_profile': state.config.default_profile_name,
-        'processing': state.processor.get_status(),
+        'processing': await state.processor.get_status(),
         'profiles': {
             profile.name: await profile.get_status()
             for profile in state.profiles.values()
