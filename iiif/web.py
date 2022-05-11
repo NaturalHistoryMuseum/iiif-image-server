@@ -78,6 +78,10 @@ async def status() -> JSONResponse:
 
 @app.get('/favicon.ico')
 async def favicon() -> StreamingResponse:
+    """
+    This only exists to stop requests to /favicon.ico from erroring when running the server under /.
+    It's probably only useful in the dev env tbh and just returns the IIIF favicon.
+    """
     async def get():
         async with aiohttp.ClientSession() as session:
             async with session.get('https://iiif.io/favicon.ico') as response:
