@@ -1,12 +1,11 @@
-from pathlib import Path
-from typing import Tuple, Optional, Any, Union, AsyncIterable
-
 import abc
-import logging
-from cachetools import LRUCache
+from cachetools import TTLCache
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Tuple, Optional, Any, AsyncIterable
 
 from iiif.config import Config
-from iiif.utils import get_path_stats, generate_sizes, create_logger
+from iiif.utils import get_path_stats, generate_sizes
 
 
 class ImageInfo:
@@ -53,13 +52,12 @@ class AbstractProfile(abc.ABC):
     """
 
     def __init__(self, name: str, config: Config, rights: str, info_json_cache_size: int = 1000,
-                 log_level: Union[int, str] = logging.WARNING, cache_for: int = 0):
+                 cache_for: float = 60):
         """
         :param name: the name of the profile, should be unique across profiles
         :param config: the config object
         :param rights: the rights definition for all images handled by this profile
         :param info_json_cache_size: the size of the info.json cache
-        :param log_level: the log level to use for messages from this profile
         :param cache_for: how long in seconds a client should cache the results from this profile
                           (both info.json and image data)
         """
@@ -72,12 +70,11 @@ class AbstractProfile(abc.ABC):
         self.rights = rights
         self.source_path.mkdir(exist_ok=True)
         self.cache_path.mkdir(exist_ok=True)
-        self.info_json_cache = LRUCache(info_json_cache_size)
+        self.info_json_cache = TTLCache(maxsize=info_json_cache_size, ttl=cache_for)
         self.cache_for = cache_for
-        self.logger = create_logger(name, log_level)
 
     @abc.abstractmethod
-    async def get_info(self, name: str) -> Optional[ImageInfo]:
+    async def get_info(self, name: str) -> ImageInfo:
         """
         Returns an instance of ImageInfo or one of it's subclasses for the given name. Note that
         this function does not generate the info.json, see generate_info_json below for that!
@@ -88,20 +85,20 @@ class AbstractProfile(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def fetch_source(self, info: ImageInfo,
-                           size_hint: Optional[Tuple[int, int]] = None) -> Optional[Path]:
+    @asynccontextmanager
+    async def use_source(self, info: ImageInfo, size: Optional[Tuple[int, int]] = None) -> Path:
         """
         Ensures the source file required for the image is available, using the optional size hint to
         choose the best file if multiple sizes are available.
 
         :param info: the ImageInfo
-        :param size_hint: an 2-tuple of ints to hint at the target size required for subsequent ops
+        :param size: an 2-tuple of ints to hint at the target size required for subsequent ops
         :return: the Path to the source file or None if one could not be found
         """
         pass
 
     @abc.abstractmethod
-    async def resolve_filename(self, name: str) -> Optional[str]:
+    async def resolve_filename(self, name: str) -> str:
         """
         Given the name of an image produced by this profile, returns the filename that should be
         used for it. This is used when original images are downloaded to give them the right name.

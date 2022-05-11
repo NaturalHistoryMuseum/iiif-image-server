@@ -1,10 +1,18 @@
-from pathlib import Path
-from typing import Tuple, Optional
-
 import aiofiles
+from contextlib import asynccontextmanager
+from pathlib import Path
 
+from iiif.exceptions import ImageNotFound
 from iiif.profiles.base import AbstractProfile, ImageInfo
 from iiif.utils import get_size
+
+
+class MissingFile(ImageNotFound):
+
+    def __init__(self, profile: str, name: str, source: Path):
+        super().__init__(profile, name, log=f"Couldn't find the image file for {name} on disk at"
+                                            f" {source}")
+        self.source = source
 
 
 class OnDiskProfile(AbstractProfile):
@@ -13,32 +21,35 @@ class OnDiskProfile(AbstractProfile):
     an external source.
     """
 
-    async def get_info(self, name: str) -> Optional[ImageInfo]:
+    async def get_info(self, name: str) -> ImageInfo:
         """
         Given an image name, returns an info object for it. If the image doesn't exist on disk then
-        None is returned.
+        an error is raised.
 
         :param name: the image name
-        :return: None if the image doesn't exist on disk, or an ImageInfo instance
+        :return: an ImageInfo instance
+        :raises: HTTPException if the file is missing
         """
         source = self._get_source(name)
         if not source.exists():
-            return None
+            raise MissingFile(self.name, name, source)
         else:
             return ImageInfo(self.name, name, *get_size(source))
 
-    async def fetch_source(self, info: ImageInfo,
-                           target_size: Optional[Tuple[int, int]] = None) -> Optional[Path]:
+    @asynccontextmanager
+    async def use_source(self, info: ImageInfo, *args, **kwargs) -> Path:
         """
-        Given an info object returns the path to the on disk image source. The target size is
-        ignored by this function because we only have the full size original and nothing else.
+        Given an info object, yields the path to the on disk image source. The target size is
+        ignored by this function because we only have the full size originals and nothing else.
 
         :param info: the image info object
-        :param target_size: a target size - this is ignored by this function
         :return: the path to the source image on disk
+        :raises: HTTPException if the file is missing
         """
-        source_path = self._get_source(info.name)
-        return source_path if source_path.exists() else None
+        source = self._get_source(info.name)
+        if not source.exists():
+            raise MissingFile(self.name, info.name, source)
+        yield source
 
     def _get_source(self, name: str) -> Path:
         """
@@ -49,16 +60,14 @@ class OnDiskProfile(AbstractProfile):
         """
         return self.source_path / name
 
-    async def resolve_filename(self, name: str) -> Optional[str]:
+    async def resolve_filename(self, name: str) -> str:
         """
-        Given an image name, resolves the filename. Given that the name == the filename, this just
-        checks that the name source exists on disk and returns the name if it does.
+        Given an image name, resolves the filename..
 
         :param name: the image name
         :return: the source filename
         """
-        source_path = self._get_source(name)
-        return source_path.name if source_path.exists() else None
+        return self._get_source(name).name
 
     async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
         """
@@ -70,10 +79,10 @@ class OnDiskProfile(AbstractProfile):
         :param raise_errors: whether to raise errors if they occur, or just stop (default: True)
         :return: yields chunks of bytes
         """
-        source_path = self._get_source(name)
-        if source_path.exists():
+        source = self._get_source(name)
+        if source.exists():
             try:
-                async with aiofiles.open(file=str(source_path), mode='rb') as f:
+                async with aiofiles.open(file=str(source), mode='rb') as f:
                     while True:
                         chunk = await f.read(chunk_size)
                         if not chunk:
@@ -82,3 +91,6 @@ class OnDiskProfile(AbstractProfile):
             except Exception as e:
                 if raise_errors:
                     raise e
+        else:
+            if raise_errors:
+                raise MissingFile(self.name, name, source)

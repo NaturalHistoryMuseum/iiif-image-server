@@ -2,7 +2,6 @@ from fastapi import APIRouter
 from starlette.responses import FileResponse, JSONResponse
 
 from iiif.ops import IIIF_LEVEL, parse_params
-from iiif.processing import Task
 from iiif.state import state
 from iiif.utils import get_mimetype
 
@@ -57,30 +56,9 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
     # parse the IIIF parts of the request to assert parameter correctness and define what how we're
     # going to manipulate the image when we process it
     ops = parse_params(info, region, size, rotation, quality, fmt)
-    output_path = state.config.cache_path / info.profile_name / info.name / ops.location
-
-    # only do work if there is no cached version of the requested file
-    if not output_path.exists():
-        # this is a performance enhancement. By providing a hint at the size of the image we need to
-        # serve up, we can (sometimes!) use a smaller source image thus reducing processing time
-        if ops.region.full:
-            # the full image region is selected so we can take the hint from the size parameter
-            size_hint = (ops.size.w, ops.size.h)
-        else:
-            # a region has been specified, we'll have to use the whole thing
-            # TODO: can we do better than this?
-            size_hint = None
-
-        # ensure a source file is available to process, passing the hint
-        source_path = await profile.fetch_source(info, size_hint)
-
-        task = Task(source_path, output_path, ops)
-        # submit the task to the dispatcher and wait for it to complete
-        await state.dispatcher.submit(task)
-
-    # add a cache-control header and iiif header
+    path = await state.processor.process(profile, info, ops)
     headers = {
         'cache-control': f'max-age={profile.cache_for}',
         'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"'
     }
-    return FileResponse(output_path, media_type=get_mimetype(output_path), headers=headers)
+    return FileResponse(path, media_type=get_mimetype(path), headers=headers)

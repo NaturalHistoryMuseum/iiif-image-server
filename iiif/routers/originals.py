@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from starlette.responses import StreamingResponse
 from zipstream import AioZipStream
 
-from iiif.exceptions import too_many_images
+from iiif.exceptions import TooManyImages
 from iiif.profiles import AbstractProfile
 from iiif.state import state
 from iiif.utils import parse_identifier
@@ -58,7 +58,7 @@ async def zip_originals(identifiers: str, stop_on_error: bool = True,
     """
     profiles_and_names = list(parse_identifiers(identifiers))
     if len(profiles_and_names) > state.config.download_max_files:
-        raise too_many_images(state.config.download_max_files)
+        raise TooManyImages(state.config.download_max_files)
 
     # aiozipstream can't handle async generators which is a shame :(
     files = []

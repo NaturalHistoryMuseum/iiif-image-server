@@ -24,3 +24,9 @@ def create_image(config: Config, width: int, height: int, profile: str = 'test',
     img = Image.new('RGB', (width, height), color='red')
     img.save(path, format='jpeg')
     return path
+
+
+def create_file(path: Path, size: int):
+    with path.open('wb') as f:
+        f.write(bytes(size))
+    return path

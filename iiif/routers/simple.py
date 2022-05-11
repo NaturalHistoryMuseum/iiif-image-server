@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from starlette.responses import FileResponse, StreamingResponse
 
-from iiif.exceptions import image_not_found
+from iiif.exceptions import ImageNotFound
 from iiif.routers.iiif import get_image_data
 from iiif.state import state
 from iiif.utils import parse_identifier, get_mimetype
@@ -71,7 +71,7 @@ async def original(identifier: str) -> StreamingResponse:
     profile = state.get_profile(profile_name)
     filename = await profile.resolve_filename(name)
     if filename is None:
-        raise image_not_found()
+        raise ImageNotFound(profile_name, name)
     response = StreamingResponse(
         profile.stream_original(name, chunk_size=state.config.download_chunk_size),
         media_type=get_mimetype(filename),
