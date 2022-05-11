@@ -176,7 +176,7 @@ class FetchCacheForTesting(FetchCache):
     def __init__(self, root: Path, ttl: float = 1, max_size: float = 20):
         super().__init__(Path(root), ttl, max_size)
 
-    def _fetch(self, fetchable: FetchableForTesting):
+    async def _fetch(self, fetchable: FetchableForTesting):
         path = self.root / fetchable.store_path
         path.parent.mkdir(parents=True, exist_ok=True)
         create_file(path, fetchable.size)
