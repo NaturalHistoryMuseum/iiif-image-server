@@ -16,7 +16,7 @@ from itertools import count
 from jpegtran import JPEGImage
 from pathlib import Path
 from typing import Optional, Tuple, Union, Any
-from wand.exceptions import MissingDelegateError, ImageError
+from wand.exceptions import WandException
 from wand.image import Image as WandImage
 
 mimetypes.init()
@@ -135,7 +135,7 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
             target_path.parent.mkdir(parents=True, exist_ok=True)
             with target_path.open('wb') as f:
                 image.save(file=f)
-    except (MissingDelegateError, ImageError):
+    except WandException:
         with Image.open(image_path) as image:
             if image.format.lower() == 'jpeg':
                 exif = image.getexif()
