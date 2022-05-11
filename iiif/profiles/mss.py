@@ -299,11 +299,7 @@ class MSSProfile(AbstractProfile):
 
     async def get_status(self) -> dict:
         status = await super().get_status()
-        status['source_cache'] = {
-            'size': humanize.naturalsize(self.store.total_size, binary=True),
-            'max_size': humanize.naturalsize(self.store.max_size, binary=True),
-            'percent_full': self.store.pct,
-        }
+        status['source_cache'] = await self.store.get_status()
         return status
 
 

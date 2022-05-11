@@ -3,6 +3,7 @@
 from concurrent.futures import ProcessPoolExecutor
 
 import asyncio
+import humanize
 import os
 from dataclasses import dataclass
 from jpegtran import JPEGImage
@@ -227,19 +228,12 @@ class ImageProcessor(FetchCache):
         """
         self.executor.shutdown()
 
-    def get_status(self) -> dict:
+    async def get_status(self) -> dict:
         """
         Returns some basic stats info as a dict.
 
         :return: a dict of stats
         """
-        return {
-            'requests': self.requests,
-            'completed': self.completed,
-            'errors': self.errors,
-            'pool_size': self.max_workers,
-            'cache_size': self.total_size,
-            'percentage_used': self.pct,
-            'in_use': len(self._in_use),
-            'waiting_clean_up': len(self._cleaners),
-        }
+        status = await super().get_status()
+        status['pool_size'] = self.max_workers
+        return status

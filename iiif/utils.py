@@ -5,6 +5,7 @@ from collections import OrderedDict, Counter
 import abc
 import aiohttp
 import asyncio
+import humanize
 import io
 import logging
 import mimetypes
@@ -382,3 +383,20 @@ class FetchCache(abc.ABC):
                 self._cleaners[path] = self._schedule_clean_up(path)
 
             self.completed += 1
+
+    async def get_status(self) -> dict:
+        """
+        Returns some basic stats about the cache as a dict.
+
+        :return: a dict of stats
+        """
+        return {
+            'requests': self.requests,
+            'completed': self.completed,
+            'errors': self.errors,
+            'cache_size': humanize.naturalsize(self.total_size, binary=True),
+            'max_size': humanize.naturalsize(self.max_size, binary=True),
+            'percentage_used': self.pct,
+            'in_use': len(self._in_use),
+            'waiting_clean_up': len(self._cleaners),
+        }
