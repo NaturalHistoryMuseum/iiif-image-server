@@ -376,16 +376,17 @@ class FetchCache(abc.ABC):
                 self._cleaners.pop(path).cancel()
             elif not path.exists():
                 async with self._locker.acquire(path, timeout=self.fetch_timeout):
-                    await self._fetch(fetchable)
-                    self._sizes[path] = path.stat().st_size
-                    self.total_size += self._sizes[path]
+                    if not path.exists():
+                        await self._fetch(fetchable)
+                        self._sizes[path] = path.stat().st_size
+                        self.total_size += self._sizes[path]
 
-                    times = 0
-                    while self._cleaners and self.total_size > self.max_size and times < 10:
-                        path_to_clean_up, handle = self._cleaners.popitem(last=False)
-                        handle.cancel()
-                        self._clean_up(path_to_clean_up)
-                        times += 1
+                        times = 0
+                        while self._cleaners and self.total_size > self.max_size and times < 10:
+                            path_to_clean_up, handle = self._cleaners.popitem(last=False)
+                            handle.cancel()
+                            self._clean_up(path_to_clean_up)
+                            times += 1
 
         self._in_use[path] += 1
         try:
