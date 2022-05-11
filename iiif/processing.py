@@ -3,7 +3,6 @@
 from concurrent.futures import ProcessPoolExecutor
 
 import asyncio
-import humanize
 import os
 from dataclasses import dataclass
 from jpegtran import JPEGImage
