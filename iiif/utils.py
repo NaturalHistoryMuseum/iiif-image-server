@@ -334,7 +334,7 @@ class FetchCache(abc.ABC):
         return self.root / relative_path in self._in_use
 
     @abc.abstractmethod
-    def _fetch(self, fetchable: Fetchable):
+    async def _fetch(self, fetchable: Fetchable):
         """
         Abstract method which, when called, puts the requested fetchable file on disk.
 
