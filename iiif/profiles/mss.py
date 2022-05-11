@@ -1,6 +1,7 @@
 from concurrent.futures import ProcessPoolExecutor, Executor
 
 import asyncio
+import humanize
 import json
 import logging
 import shutil
@@ -295,6 +296,15 @@ class MSSProfile(AbstractProfile):
         """
         await self.es_handler.close()
         await self.store.close()
+
+    async def get_status(self) -> dict:
+        status = await super().get_status()
+        status['source_cache'] = {
+            'size': humanize.naturalsize(self.store.total_size, binary=True),
+            'max_size': humanize.naturalsize(self.store.max_size, binary=True),
+            'percent_full': self.store.pct,
+        }
+        return status
 
 
 class MSSElasticsearchHandler:

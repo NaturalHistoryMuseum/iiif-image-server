@@ -5,7 +5,6 @@ from collections import OrderedDict, Counter
 import abc
 import aiohttp
 import asyncio
-import humanize
 import io
 import logging
 import mimetypes
@@ -68,22 +67,6 @@ class Locker:
         :return: True if the key is locked, False if not
         """
         return key in self._locks and self._locks[key].locked()
-
-
-def get_path_stats(path: Path) -> dict:
-    """
-    Calculates some statistics about the on disk path's files.
-
-    :param path: the path to investigate
-    :return: a dict of stats
-    """
-    sizes = [f.stat().st_size for f in path.glob('**/*') if f.is_file()]
-    size = sum(sizes)
-    return {
-        'count': len(sizes),
-        'size_bytes': size,
-        'size_pretty': humanize.naturalsize(size, binary=True),
-    }
 
 
 def get_size(path: Path) -> Tuple[int, int]:

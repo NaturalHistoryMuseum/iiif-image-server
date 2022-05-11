@@ -168,7 +168,7 @@ class AbstractProfile(abc.ABC):
         """
         pass
 
-    async def get_status(self, full: bool = False) -> dict:
+    async def get_status(self) -> dict:
         """
         Returns some stats about the profile.
 
@@ -178,7 +178,4 @@ class AbstractProfile(abc.ABC):
             'name': self.name,
             'info_json_cache_size': len(self.info_json_cache),
         }
-        if full:
-            status['sources'] = get_path_stats(self.source_path)
-            status['cache'] = get_path_stats(self.cache_path)
         return status
