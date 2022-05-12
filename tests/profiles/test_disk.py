@@ -1,11 +1,8 @@
-from fastapi import HTTPException
-from unittest.mock import patch, MagicMock
-
 import math
 import pytest
 
 from iiif.profiles.base import ImageInfo
-from iiif.profiles.disk import OnDiskProfile
+from iiif.profiles.disk import OnDiskProfile, MissingFile
 from tests.utils import create_image
 
 
@@ -17,7 +14,7 @@ def disk_profile(config):
 class TestOnDiskProfile:
 
     async def test_get_info_no_file(self, disk_profile):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(MissingFile) as exc_info:
             await disk_profile.get_info('image')
         assert exc_info.value.status_code == 404
 
@@ -26,23 +23,24 @@ class TestOnDiskProfile:
         info = await disk_profile.get_info('image')
         assert info.size == (100, 100)
 
-    async def test_fetch_source_no_file(self, config, disk_profile):
+    async def test_use_source_no_file(self, config, disk_profile):
         info = ImageInfo('test', 'image', 100, 100)
-        with pytest.raises(HTTPException) as exc_info:
-            await disk_profile.fetch_source(info)
+        with pytest.raises(MissingFile) as exc_info:
+            async with disk_profile.use_source(info) as _:
+                pass
         assert exc_info.value.status_code == 404
 
-    async def test_fetch_source_with_file(self, config, disk_profile):
+    async def test_use_source_with_file(self, config, disk_profile):
         info = ImageInfo('test', 'image', 100, 100)
         create_image(config, 100, 100, 'test', 'image')
-        source_path = await disk_profile.fetch_source(info)
-        assert source_path == disk_profile.source_path / 'image'
+        async with disk_profile.use_source(info) as source_path:
+            assert source_path == disk_profile.source_path / 'image'
 
         info = ImageInfo('test', 'image', 100, 100)
         create_image(config, 100, 100, 'test', 'image')
         # target size doesn't matter for on disk images
-        source_path = await disk_profile.fetch_source(info, (50, 50))
-        assert source_path == disk_profile.source_path / 'image'
+        async with disk_profile.use_source(info, (50, 50)) as source_path:
+            assert source_path == disk_profile.source_path / 'image'
 
     async def test_resolve_filename_no_file(self, disk_profile):
         filename = await disk_profile.resolve_filename('image')
@@ -55,7 +53,7 @@ class TestOnDiskProfile:
         assert count == 0
 
     async def test_stream_original_no_file_errors_on(self, disk_profile):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(MissingFile) as exc_info:
             async for _ in disk_profile.stream_original('image', raise_errors=True):
                 pass
         assert exc_info.value.status_code == 404
