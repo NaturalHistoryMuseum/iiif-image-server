@@ -109,6 +109,17 @@ class AbstractProfile(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def resolve_original_size(self, name: str) -> int:
+        """
+        Given the name of an image managed by this profile, returns the size of the original source
+        image.
+
+        :param name: the name of the image
+        :return: the size of the original image in bytes
+        """
+        ...
+
+    @abc.abstractmethod
     async def stream_original(self, name: str, chunk_size: int = 4096,
                               raise_errors=True) -> AsyncIterable[bytes]:
         """

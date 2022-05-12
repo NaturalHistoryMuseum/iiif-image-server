@@ -1,11 +1,11 @@
 from concurrent.futures import ProcessPoolExecutor, Executor
 
 import asyncio
-import humanize
 import json
 import logging
 import shutil
 import tempfile
+from aiohttp import ClientResponse
 from cachetools import TTLCache
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -271,6 +271,21 @@ class MSSProfile(AbstractProfile):
         doc = await self.get_mss_doc(name)
         return doc['file']
 
+    async def resolve_original_size(self, name: str) -> int:
+        """
+        Given an image name (i.e. a GUID), return the size of the original image. This relies on the
+        server which is actually serving up the original file data telling us how big the file is
+        through a content-length header. This means we're using the actual filesize, not relying on
+        the data EMu has to hand (which, if the file has been modified directly on disk, may not be
+        correct and would cause issues if we presented an incorrect content-length).
+
+        :param name: the image name (in this case the GUID)
+        :return: the size of the original image in bytes
+        """
+        doc = await self.get_mss_doc(name)
+        source = MSSSourceFile(int(doc['id']), doc['file'], True)
+        return await self.store.get_file_size(source)
+
     async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
         """
         Async generator which yields the bytes of the original image for the given image name (EMu
@@ -426,17 +441,22 @@ class MSSSourceStore(FetchCache):
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(target_path, cache_path)
 
-    async def stream(self, source: MSSSourceFile):
+    @asynccontextmanager
+    async def _open_stream(self, source: MSSSourceFile) -> ClientResponse:
         """
-        Stream the given source file directly from the MSS.
+        Opens a stream to the requested source data file. This is returned in the form of an aiohttp
+        ClientResponse object which will be correctly closed once this context manager exits. The
+        response may come from the MSS or it may come from the old dams service (via the damsurl
+        file).
 
-        :param source: the source
-        :return: yields chunks of bytes
+        :param source: the source file requested
+        :return: a ClientResponse object
         """
         async with AsyncExitStack() as stack:
             response = await stack.enter_async_context(self.mss_session.get(source.url))
 
             if response.status == 401:
+                # TODO: this should probably be a different kind of error
                 raise HTTPException(status_code=401, detail=f'Access denied')
 
             if response.status == 404 and source.is_original:
@@ -449,9 +469,33 @@ class MSSSourceStore(FetchCache):
                 response = await stack.enter_async_context(self.dm_session.get(damsurl))
 
             response.raise_for_status()
+            yield response
 
+    async def stream(self, source: MSSSourceFile):
+        """
+        Stream the given source file directly from the MSS/dams.
+
+        :param source: the source
+        :return: yields chunks of bytes
+        """
+        async with self._open_stream(source) as response:
             while chunk := await response.content.read(source.chunk_size):
                 yield chunk
+
+    async def get_file_size(self, source: MSSSourceFile) -> int:
+        """
+        Returns the file size of the given source by connecting to the backend service that can
+        provide the source and returning the content-length. No body data is read, just the headers.
+
+        :param source: the source
+        :return: the size of the file in bytes
+        """
+        async with self._open_stream(source) as response:
+            size = response.headers.get('content-length')
+            if size is None:
+                # TODO: this should be a better exception
+                raise Exception(f'The MSS backend returned no content-length')
+            return int(size)
 
     def _choose_convert_pool(self, file: str) -> Executor:
         """

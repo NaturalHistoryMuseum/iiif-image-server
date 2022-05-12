@@ -69,6 +69,18 @@ class OnDiskProfile(AbstractProfile):
         """
         return self._get_source(name).name
 
+    async def resolve_original_size(self, name: str) -> int:
+        """
+        Given an image, returns the size of the source image.
+
+        :param name: the image name
+        :return: the size of the source file in bytes
+        """
+        source = self._get_source(name)
+        if not source.exists():
+            raise MissingFile(self.name, name, source)
+        return source.stat().st_size
+
     async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
         """
         Streams the source file for the given image name from disk to the requester. This function

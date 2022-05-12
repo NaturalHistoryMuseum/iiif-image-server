@@ -70,12 +70,14 @@ async def original(identifier: str) -> StreamingResponse:
     profile_name, name = parse_identifier(identifier)
     profile = state.get_profile(profile_name)
     filename = await profile.resolve_filename(name)
-    if filename is None:
-        raise ImageNotFound(profile_name, name)
+    length = await profile.resolve_original_size(name)
     response = StreamingResponse(
         profile.stream_original(name, chunk_size=state.config.download_chunk_size),
         media_type=get_mimetype(filename),
         # note the quoted file name, this avoids client-side errors if the filename contains a comma
-        headers={'content-disposition': f'attachment; filename="{filename}"'}
+        headers={
+            'content-disposition': f'attachment; filename="{filename}"',
+            'content-length': str(length)
+        }
     )
     return response
