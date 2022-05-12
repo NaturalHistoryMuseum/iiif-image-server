@@ -98,7 +98,7 @@ class AbstractProfile(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def resolve_filename(self, name: str) -> str:
+    async def resolve_filename(self, name: str) -> Optional[str]:
         """
         Given the name of an image produced by this profile, returns the filename that should be
         used for it. This is used when original images are downloaded to give them the right name.
