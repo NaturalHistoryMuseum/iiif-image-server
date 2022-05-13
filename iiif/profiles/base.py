@@ -80,22 +80,23 @@ class AbstractProfile(abc.ABC):
         this function does not generate the info.json, see generate_info_json below for that!
 
         :param name: the name of the image
-        :return: an info object or None if the image wasn't available (for any reason)
+        :return: an info object
         """
-        pass
+        ...
 
     @abc.abstractmethod
     @asynccontextmanager
     async def use_source(self, info: ImageInfo, size: Optional[Tuple[int, int]] = None) -> Path:
         """
         Ensures the source file required for the image is available, using the optional size hint to
-        choose the best file if multiple sizes are available.
+        choose the best file if multiple sizes are available, and then yields the path to it. This
+        function should ensure that while the context is up the source is available at the path.
 
         :param info: the ImageInfo
         :param size: an 2-tuple of ints to hint at the target size required for subsequent ops
-        :return: the Path to the source file or None if one could not be found
+        :return: the Path to the source file
         """
-        pass
+        ...
 
     @abc.abstractmethod
     async def resolve_filename(self, name: str) -> Optional[str]:
@@ -104,9 +105,9 @@ class AbstractProfile(abc.ABC):
         used for it. This is used when original images are downloaded to give them the right name.
 
         :param name: the image name
-        :return: the filename or None if the name is invalid
+        :return: the filename
         """
-        pass
+        ...
 
     @abc.abstractmethod
     async def resolve_original_size(self, name: str) -> int:
@@ -131,7 +132,7 @@ class AbstractProfile(abc.ABC):
         :param chunk_size: the number of bytes to yield at a time
         :return: an asynchronous generator of bytes
         """
-        pass
+        ...
 
     async def generate_info_json(self, info: ImageInfo, iiif_level: int) -> dict:
         """

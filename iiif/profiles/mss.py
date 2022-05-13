@@ -27,8 +27,8 @@ from iiif.utils import get_size
 class MSSAccessDenied(ImageNotFound):
 
     def __init__(self, profile: str, name: str, emu_irn: int):
-        super().__init__(profile, name, log=f"MSS denied access to multimedia IRN {emu_irn} "
-                                            f"[guid: {name}]")
+        super().__init__(profile, name,
+                         log=f"MSS denied access to multimedia IRN {emu_irn} [guid: {name}]")
         self.emu_irn = emu_irn
 
 
@@ -161,7 +161,7 @@ class MSSProfile(AbstractProfile):
 
     async def get_info(self, name: str) -> MSSImageInfo:
         """
-        Given an image name (a GUID) returns a MSSImageInfo object or raise an HTTPException if the
+        Given an image name (a GUID) returns a MSSImageInfo object or raise an exception if the
         image can't be found/isn't allowed to be accessed. If the image doesn't have width and
         height stored in the elasticsearch index for whatever reason then the original source image
         will be retrieved and the size extracted.
@@ -232,7 +232,7 @@ class MSSProfile(AbstractProfile):
               the APS)
 
         :param name: the image name (a GUID)
-        :return: the mss doc as a dict or None
+        :return: the mss doc as a dict
         """
         if name in self.mss_doc_cache:
             return self.mss_doc_cache[name]

@@ -10,8 +10,8 @@ from iiif.utils import get_size
 class MissingFile(ImageNotFound):
 
     def __init__(self, profile: str, name: str, source: Path):
-        super().__init__(profile, name, log=f"Couldn't find the image file for {name} on disk at"
-                                            f" {source}")
+        super().__init__(profile, name,
+                         log=f"Couldn't find the image file for {name} on disk at {source}")
         self.source = source
 
 
@@ -28,7 +28,7 @@ class OnDiskProfile(AbstractProfile):
 
         :param name: the image name
         :return: an ImageInfo instance
-        :raises: HTTPException if the file is missing
+        :raises: MissingFile if the file is missing
         """
         source = self._get_source(name)
         if not source.exists():
