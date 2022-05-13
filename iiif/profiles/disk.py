@@ -31,10 +31,7 @@ class OnDiskProfile(AbstractProfile):
         :raises: MissingFile if the file is missing
         """
         source = self._get_source(name)
-        if not source.exists():
-            raise MissingFile(self.name, name, source)
-        else:
-            return ImageInfo(self.name, name, *get_size(source))
+        return ImageInfo(self.name, name, *get_size(source))
 
     @asynccontextmanager
     async def use_source(self, info: ImageInfo, *args, **kwargs) -> Path:
@@ -46,19 +43,21 @@ class OnDiskProfile(AbstractProfile):
         :return: the path to the source image on disk
         :raises: HTTPException if the file is missing
         """
-        source = self._get_source(info.name)
-        if not source.exists():
-            raise MissingFile(self.name, info.name, source)
-        yield source
+        yield self._get_source(info.name)
 
     def _get_source(self, name: str) -> Path:
         """
-        Returns the path to the given name in this profile.
+        Returns the path to the given name in this profile. If the file doesn't exist, raises a
+        MissingFile error.
 
         :param name: the name of the image
         :return: the path to the image
+        :raises: MissingFile exception if the file doesn't exist
         """
-        return self.source_path / name
+        source = self.source_path / name
+        if not source.exists():
+            raise MissingFile(self.name, name, source)
+        return source
 
     async def resolve_filename(self, name: str) -> str:
         """
@@ -66,6 +65,7 @@ class OnDiskProfile(AbstractProfile):
 
         :param name: the image name
         :return: the source filename
+        :raises: MissingFile exception if the file doesn't exist
         """
         return self._get_source(name).name
 
@@ -75,11 +75,9 @@ class OnDiskProfile(AbstractProfile):
 
         :param name: the image name
         :return: the size of the source file in bytes
+        :raises: MissingFile exception if the file doesn't exist
         """
-        source = self._get_source(name)
-        if not source.exists():
-            raise MissingFile(self.name, name, source)
-        return source.stat().st_size
+        return self._get_source(name).stat().st_size
 
     async def stream_original(self, name: str, chunk_size: int = 4096):
         """
@@ -89,14 +87,12 @@ class OnDiskProfile(AbstractProfile):
         :param name: the image name
         :param chunk_size: the size in bytes of each chunk
         :return: yields chunks of bytes
+        :raises: MissingFile exception if the file doesn't exist
         """
         source = self._get_source(name)
-        if source.exists():
-            async with aiofiles.open(file=str(source), mode='rb') as f:
-                while True:
-                    chunk = await f.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-        else:
-            raise MissingFile(self.name, name, source)
+        async with aiofiles.open(file=str(source), mode='rb') as f:
+            while True:
+                chunk = await f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
