@@ -7,7 +7,7 @@ from contextlib import suppress
 from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
 
-# this server currently supports IIIF level1
+# this server currently supports IIIF level2
 IIIF_LEVEL = 2
 
 
