@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-import asyncio
 import pytest
 from contextlib import asynccontextmanager
-from fastapi import HTTPException
 from pathlib import Path
 from typing import Optional, Union
 from unittest.mock import AsyncMock, patch, Mock, MagicMock

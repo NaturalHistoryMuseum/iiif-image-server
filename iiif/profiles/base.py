@@ -120,8 +120,7 @@ class AbstractProfile(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def stream_original(self, name: str, chunk_size: int = 4096,
-                              raise_errors=True) -> AsyncIterable[bytes]:
+    async def stream_original(self, name: str, chunk_size: int = 4096) -> AsyncIterable[bytes]:
         """
         Streams the original file associated with the given name, if valid. The chunk size can be
         configured to define how much data is yielded each time this function is scheduled to run
@@ -130,7 +129,6 @@ class AbstractProfile(abc.ABC):
 
         :param name: the name of the image
         :param chunk_size: the number of bytes to yield at a time
-        :param raise_errors: whether to raise errors as they occur or just stop (default: True)
         :return: an asynchronous generator of bytes
         """
         pass

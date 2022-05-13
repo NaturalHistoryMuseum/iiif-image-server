@@ -18,7 +18,7 @@ from typing import Tuple, Optional
 from urllib.parse import quote
 
 from iiif.config import Config
-from iiif.exceptions import Timeout, IIIFServerException, ImageNotFound
+from iiif.exceptions import Timeout, IIIFServerException, ImageNotFound, log_error
 from iiif.profiles.base import AbstractProfile, ImageInfo
 from iiif.utils import Locker, convert_image, create_client_session, FetchCache, Fetchable
 from iiif.utils import get_size
@@ -43,6 +43,15 @@ class MSSDocNotFound(ImageNotFound):
 
     def __init__(self, profile: str, name: str):
         super().__init__(profile, name, log=f"No MSS doc found for the guid {name}")
+
+
+class MSSStoreFailure(IIIFServerException):
+
+    def __init__(self, profile: str, name: str, cause: 'StoreStreamError'):
+        super().__init__(f'Failed to retrieve the requested image data for {name} from the '
+                         f'{profile} backend, try again', status_code=503,
+                         log=f'Failed to stream the source file for {profile}:{name} from '
+                             f'{cause.url} due to {cause.cause}')
 
 
 class MSSImageInfo(ImageInfo):
@@ -281,28 +290,33 @@ class MSSProfile(AbstractProfile):
         :param name: the image name (in this case the GUID)
         :return: the size of the original image in bytes
         """
-        doc = await self.get_mss_doc(name)
-        source = MSSSourceFile(int(doc['id']), doc['file'], True)
-        return await self.store.get_file_size(source)
+        try:
+            doc = await self.get_mss_doc(name)
+            source = MSSSourceFile(int(doc['id']), doc['file'], True)
+            return await self.store.get_file_size(source)
+        except StoreStreamError as cause:
+            raise MSSStoreFailure(self.name, name, cause)
 
-    async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
+    async def stream_original(self, name: str, chunk_size: int = 4096):
         """
         Async generator which yields the bytes of the original image for the given image name (EMu
         IRN). If the image isn't available then nothing is yielded.
 
         :param name: the name of the image (EMu IRN)
         :param chunk_size: the size of the chunks to yield
-        :param raise_errors: whether to raise errors when they happen or simply stop, swallowing the
-                             error
         """
         try:
             doc = await self.get_mss_doc(name)
             source = MSSSourceFile(int(doc['id']), doc['file'], True, chunk_size)
             async for chunk in self.store.stream(source):
                 yield chunk
-        except Exception as e:
-            if raise_errors:
-                raise e
+        except StoreStreamError as cause:
+            e = MSSStoreFailure(self.name, name, cause)
+            # it's highly likely this error won't get surfaced through the exception handler because
+            # the response has likely already begun, so log it before raising it to ensure we can
+            # see what happened
+            log_error(e)
+            raise e
 
     async def close(self):
         """

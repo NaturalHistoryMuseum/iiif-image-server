@@ -46,15 +46,9 @@ class TestOnDiskProfile:
         filename = await disk_profile.resolve_filename('image')
         assert filename == 'image'
 
-    async def test_stream_original_no_file_errors_off(self, disk_profile):
-        count = 0
-        async for _ in disk_profile.stream_original('image', raise_errors=False):
-            count += 1
-        assert count == 0
-
-    async def test_stream_original_no_file_errors_on(self, disk_profile):
+    async def test_stream_original_no_file(self, disk_profile):
         with pytest.raises(MissingFile) as exc_info:
-            async for _ in disk_profile.stream_original('image', raise_errors=True):
+            async for _ in disk_profile.stream_original('image'):
                 pass
         assert exc_info.value.status_code == 404
 

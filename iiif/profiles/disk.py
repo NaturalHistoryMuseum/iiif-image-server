@@ -81,28 +81,22 @@ class OnDiskProfile(AbstractProfile):
             raise MissingFile(self.name, name, source)
         return source.stat().st_size
 
-    async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
+    async def stream_original(self, name: str, chunk_size: int = 4096):
         """
         Streams the source file for the given image name from disk to the requester. This function
         uses aiofiles to avoid locking up the server.
 
         :param name: the image name
         :param chunk_size: the size in bytes of each chunk
-        :param raise_errors: whether to raise errors if they occur, or just stop (default: True)
         :return: yields chunks of bytes
         """
         source = self._get_source(name)
         if source.exists():
-            try:
-                async with aiofiles.open(file=str(source), mode='rb') as f:
-                    while True:
-                        chunk = await f.read(chunk_size)
-                        if not chunk:
-                            break
-                        yield chunk
-            except Exception as e:
-                if raise_errors:
-                    raise e
+            async with aiofiles.open(file=str(source), mode='rb') as f:
+                while True:
+                    chunk = await f.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
         else:
-            if raise_errors:
-                raise MissingFile(self.name, name, source)
+            raise MissingFile(self.name, name, source)

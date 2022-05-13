@@ -2,11 +2,10 @@ import pytest
 from PIL import Image
 from aiohttp import ClientResponseError
 from aioresponses import aioresponses
-from fastapi import HTTPException
 from io import BytesIO
 from pathlib import Path
 
-from iiif.profiles.mss import MSSSourceStore, MSSSourceFile
+from iiif.profiles.mss import MSSSourceStore, MSSSourceFile, StoreStreamError
 
 MOCK_HOST = 'http://not.the.real.mss.host'
 
@@ -77,9 +76,13 @@ async def test_stream_access_denied(source_root):
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, False)
             m.get(source.url, status=401)
-            with pytest.raises(HTTPException):
+            with pytest.raises(StoreStreamError) as exc_info:
                 async for chunk in store.stream(source):
                     pass
+            assert exc_info.value.url.endswith(source.url)
+            assert exc_info.value.source is source
+            assert isinstance(exc_info.value.cause, ClientResponseError)
+            assert exc_info.value.cause.status == 401
     finally:
         await store.close()
 
@@ -92,9 +95,14 @@ async def test_stream_missing(source_root):
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, False)
             m.get(source.url, status=404)
-            with pytest.raises(ClientResponseError):
+            m.get(source.dams_url, status=404)
+            with pytest.raises(StoreStreamError) as exc_info:
                 async for chunk in store.stream(source):
                     pass
+            assert exc_info.value.url.endswith(source.dams_url)
+            assert exc_info.value.source is source
+            assert isinstance(exc_info.value.cause, ClientResponseError)
+            assert exc_info.value.cause.status == 404
     finally:
         await store.close()
 
@@ -136,9 +144,13 @@ async def test_stream_dams_fails(source_root: Path):
             m.get(source.dams_url, body=dams_url)
             m.get(dams_url, status=404)
 
-            with pytest.raises(ClientResponseError):
+            with pytest.raises(StoreStreamError) as exc_info:
                 async for chunk in store.stream(source):
                     pass
+            assert exc_info.value.url == dams_url
+            assert exc_info.value.source is source
+            assert isinstance(exc_info.value.cause, ClientResponseError)
+            assert exc_info.value.cause.status == 404
     finally:
         await store.close()
 
