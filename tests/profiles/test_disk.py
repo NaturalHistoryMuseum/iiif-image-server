@@ -42,7 +42,8 @@ class TestOnDiskProfile:
         async with disk_profile.use_source(info, (50, 50)) as source_path:
             assert source_path == disk_profile.source_path / 'image'
 
-    async def test_resolve_filename_no_file(self, disk_profile):
+    async def test_resolve_filename_no_file(self, config, disk_profile):
+        create_image(config, 100, 100, 'test', 'image')
         filename = await disk_profile.resolve_filename('image')
         assert filename == 'image'
 
