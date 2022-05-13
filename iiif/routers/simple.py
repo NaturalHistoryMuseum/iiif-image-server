@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 from starlette.responses import FileResponse, StreamingResponse
 
-from iiif.exceptions import ImageNotFound
 from iiif.routers.iiif import get_image_data
 from iiif.state import state
 from iiif.utils import parse_identifier, get_mimetype
