@@ -71,11 +71,15 @@ class InvalidIIIFParameter(IIIFServerException):
 
 
 async def handler(request: Request, exception: IIIFServerException) -> JSONResponse:
-    if exception.log:
-        logger.log(exception.level, exception.log)
+    log_error(exception)
     return JSONResponse(
         status_code=exception.status_code,
         content={
             'error': exception.public
         },
     )
+
+
+def log_error(exception: IIIFServerException):
+    if exception.log:
+        logger.log(exception.level, exception.log)
