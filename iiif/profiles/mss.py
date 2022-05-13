@@ -54,6 +54,12 @@ class MSSStoreFailure(IIIFServerException):
                              f'{cause.url} due to {cause.cause}')
 
 
+class MSSStoreNoLength(IIIFServerException):
+
+    def __init__(self, profile: str, name: str):
+        super().__init__(f'Failed to get data length for {name} from the {profile} backend.')
+
+
 class MSSImageInfo(ImageInfo):
     """
     MSS variant of the ImageInfo class.
@@ -294,6 +300,8 @@ class MSSProfile(AbstractProfile):
             doc = await self.get_mss_doc(name)
             source = MSSSourceFile(int(doc['id']), doc['file'], True)
             return await self.store.get_file_size(source)
+        except StoreStreamNoLength as e:
+            raise MSSStoreNoLength(self.name, name)
         except StoreStreamError as cause:
             raise MSSStoreFailure(self.name, name, cause)
 
@@ -405,6 +413,10 @@ class StoreStreamError(Exception):
         self.source = source
         self.url = url
         self.cause = cause
+
+
+class StoreStreamNoLength(Exception):
+    pass
 
 
 class MSSSourceStore(FetchCache):
@@ -520,8 +532,7 @@ class MSSSourceStore(FetchCache):
         async with self._open_stream(source) as response:
             size = response.headers.get('content-length')
             if size is None:
-                # TODO: this should be a better exception
-                raise Exception(f'The MSS backend returned no content-length')
+                raise StoreStreamNoLength('The backend returned no content-length')
             return int(size)
 
     def _choose_convert_pool(self, file: str) -> Executor:

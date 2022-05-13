@@ -5,7 +5,7 @@ from aioresponses import aioresponses
 from io import BytesIO
 from pathlib import Path
 
-from iiif.profiles.mss import MSSSourceStore, MSSSourceFile, StoreStreamError
+from iiif.profiles.mss import MSSSourceStore, MSSSourceFile, StoreStreamError, StoreStreamNoLength
 
 MOCK_HOST = 'http://not.the.real.mss.host'
 
@@ -174,3 +174,27 @@ async def test_use(source_root: Path):
                     assert image.format.lower() == 'jpeg'
     finally:
         await store.close()
+
+
+async def test_get_file_size(source_root: Path):
+    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+    emu_irn = 12345
+    file = 'some_file.jpg'
+    content_length = 489345
+
+    with aioresponses() as m:
+        source = MSSSourceFile(emu_irn, file, False)
+        m.get(source.url, headers={'content-length': str(content_length)})
+        assert await store.get_file_size(source) == content_length
+
+
+async def test_get_file_size_fail(source_root: Path):
+    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+    emu_irn = 12345
+    file = 'some_file.jpg'
+
+    with aioresponses() as m:
+        source = MSSSourceFile(emu_irn, file, False)
+        m.get(source.url, headers={})
+        with pytest.raises(StoreStreamNoLength):
+            assert await store.get_file_size(source)
