@@ -5,12 +5,11 @@ import json
 import logging
 import shutil
 import tempfile
-from aiohttp import ClientResponse
+from aiohttp import ClientResponse, ClientError
 from cachetools import TTLCache
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from elasticsearch_dsl import Search
-from fastapi import HTTPException
 from functools import partial
 from itertools import cycle
 from pathlib import Path
@@ -385,6 +384,15 @@ class MSSSourceFile(Fetchable):
         return f'/nhmlive/{emu_irn}'
 
 
+class StoreStreamError(Exception):
+
+    def __init__(self, source: MSSSourceFile, url: str, cause: ClientError):
+        super().__init__()
+        self.source = source
+        self.url = url
+        self.cause = cause
+
+
 class MSSSourceStore(FetchCache):
     """
     Class that controls fetching source files from the MSS and then storing them in a cache and
@@ -452,24 +460,29 @@ class MSSSourceStore(FetchCache):
         :param source: the source file requested
         :return: a ClientResponse object
         """
-        async with AsyncExitStack() as stack:
-            response = await stack.enter_async_context(self.mss_session.get(source.url))
+        check_dams = False
+        current_url = source.url
+        try:
+            async with self.mss_session.get(source.url) as mss_response:
+                if mss_response.status == 404:
+                    check_dams = True
+                else:
+                    mss_response.raise_for_status()
+                    yield mss_response
 
-            if response.status == 401:
-                # TODO: this should probably be a different kind of error
-                raise HTTPException(status_code=401, detail=f'Access denied')
+            if check_dams:
+                current_url = source.dams_url
+                async with self.mss_session.get(source.dams_url) as mss_response:
+                    mss_response.raise_for_status()
+                    # load the url in the response and fetch it
+                    dams_url = await mss_response.text(encoding='utf-8')
 
-            if response.status == 404 and source.is_original:
-                # check for a damsurl file
-                response = await stack.enter_async_context(self.mss_session.get(source.dams_url))
-                response.raise_for_status()
-
-                # load the url in the response and fetch it
-                damsurl = await response.text(encoding='utf-8')
-                response = await stack.enter_async_context(self.dm_session.get(damsurl))
-
-            response.raise_for_status()
-            yield response
+                current_url = dams_url
+                async with self.dm_session.get(dams_url) as dams_response:
+                    dams_response.raise_for_status()
+                    yield dams_response
+        except ClientError as e:
+            raise StoreStreamError(source, current_url, e)
 
     async def stream(self, source: MSSSourceFile):
         """
