@@ -1,8 +1,7 @@
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-
-from contextlib import suppress
 
 from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
@@ -152,9 +151,8 @@ def parse_size(size: str, region: Region) -> Size:
 
 @dataclass
 class Rotation:
-    # jpegtran only supports rotating in 90 degree increments and IIIF suggests only supporting
-    # rotating by 90 unless the png format is supported so that the background can be made
-    # transparent
+    # IIIF suggests only supporting rotating by 90 unless the png format is supported so that the
+    # background can be made transparent
     angle: int
     mirror: bool = False
 

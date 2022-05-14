@@ -4,6 +4,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 import asyncio
 import os
+from PIL import ImageOps
 from dataclasses import dataclass
 from jpegtran import JPEGImage
 from jpegtran.lib import Transformation
@@ -65,19 +66,20 @@ def process_size(image: JPEGImage, size: Size) -> JPEGImage:
 
 def process_rotation(image: JPEGImage, rotation: Rotation) -> JPEGImage:
     """
-    Processes a IIIF rotation parameter which can involve mirroring and/or rotating.
+    Processes a IIIF rotation parameter which can involve mirroring and/or rotating. We could do
+    this in jpegtran but only if the width and height were divisible by 16 so we'll just do it in
+    pillow for ease.
 
     :param image: a jpegtran JPEGImage object
     :param rotation: the IIIF rotate parameter
     :return: a jpegtran JPEGImage object
     """
+    pillow_image = to_pillow(image)
     if rotation.mirror:
-        image = image.flip('horizontal')
+        pillow_image = ImageOps.mirror(pillow_image)
     if rotation.angle > 0:
-        # note that jpegtran can only do 90 degree rotations, if we want to support arbitrary
-        # rotation we'll have to use pillow/pywand
-        image = image.rotate(rotation.angle)
-    return image
+        pillow_image = pillow_image.rotate(rotation.angle)
+    return to_jpegtran(pillow_image)
 
 
 def process_quality(image: JPEGImage, quality: Quality) -> JPEGImage:

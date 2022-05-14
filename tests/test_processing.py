@@ -3,7 +3,7 @@
 
 import hashlib
 import pytest
-from PIL import Image
+from PIL import Image, ImageOps
 from jpegtran import JPEGImage
 from pathlib import Path
 from queue import Queue
@@ -96,7 +96,7 @@ class TestProcessRotation:
 
     def test_rotate(self, image: JPEGImage):
         result = process_rotation(image, Rotation(90))
-        assert_same(result, image.rotate(90))
+        assert_same(result, to_pillow(image).rotate(90))
 
     def test_mirror(self, image: JPEGImage):
         result = process_rotation(image, Rotation(0, mirror=True))
@@ -104,7 +104,7 @@ class TestProcessRotation:
 
     def test_rotate_and_mirror(self, image: JPEGImage):
         result = process_rotation(image, Rotation(90, mirror=True))
-        assert_same(result, image.flip('horizontal').rotate(90))
+        assert_same(result, ImageOps.mirror(to_pillow(image)).rotate(90))
 
 
 class TestQuality:
