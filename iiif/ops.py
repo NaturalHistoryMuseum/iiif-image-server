@@ -191,10 +191,16 @@ def parse_rotation(rotation: str) -> Rotation:
 
 
 class Quality(Enum):
-    default = 'default'
-    color = 'color'
-    gray = 'gray'
-    bitonal = 'bitonal'
+    default = ('default',)
+    color = ('color', 'colour')
+    gray = ('gray', 'grey')
+    bitonal = ('bitonal',)
+
+    def matches(self, value: str) -> bool:
+        return value in self.value
+
+    def __str__(self) -> str:
+        return self.value[0]
 
 
 def parse_quality(quality: str) -> Quality:
@@ -208,15 +214,21 @@ def parse_quality(quality: str) -> Quality:
     :return: a Quality
     """
     for option in Quality:
-        if option.value == quality:
+        if option.matches(quality):
             return option
 
     raise InvalidIIIFParameter('Quality', quality)
 
 
 class Format(Enum):
-    jpg = 'jpg'
-    png = 'png'
+    jpg = ('jpg', 'jpeg')
+    png = ('png',)
+
+    def matches(self, value: str) -> bool:
+        return value in self.value
+
+    def __str__(self) -> str:
+        return self.value[0]
 
 
 def parse_format(fmt: str) -> Format:
@@ -230,7 +242,7 @@ def parse_format(fmt: str) -> Format:
     :return: a Format
     """
     for option in Format:
-        if option.value == fmt:
+        if option.matches(fmt):
             return option
 
     raise InvalidIIIFParameter('Format', fmt)
@@ -274,4 +286,4 @@ class IIIFOps:
         :return: the path where the image produced by this set of ops should be stored.
         """
         return Path(str(self.region), str(self.size), str(self.rotation),
-                    f'{self.quality.value}.{self.format.value}')
+                    f'{self.quality}.{self.format}')

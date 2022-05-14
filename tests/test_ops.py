@@ -186,8 +186,14 @@ class TestParseQuality:
     def test_level2_color(self):
         assert parse_quality('color') == Quality.color
 
+    def test_level2_color(self):
+        assert parse_quality('colour') == Quality.color
+
     def test_level2_gray(self):
         assert parse_quality('gray') == Quality.gray
+
+    def test_level2_grey(self):
+        assert parse_quality('grey') == Quality.gray
 
     def test_bitonal(self):
         assert parse_quality('bitonal') == Quality.bitonal
@@ -202,6 +208,9 @@ class TestParseFormat:
 
     def test_level0(self):
         assert parse_format('jpg') == Format.jpg
+
+    def test_level0(self):
+        assert parse_format('jpeg') == Format.jpg
 
     def test_level2_png(self):
         assert parse_format('png') == Format.png
