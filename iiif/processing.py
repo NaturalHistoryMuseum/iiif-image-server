@@ -190,7 +190,6 @@ class ImageProcessor(FetchCache):
         :param max_workers: maximum number of worker processes to use to work on processing images
         """
         super().__init__(root, ttl, max_size)
-        self.loop = asyncio.get_event_loop()
         self.max_workers = max_workers
         self.executor = ProcessPoolExecutor(max_workers=max_workers)
 
@@ -219,9 +218,10 @@ class ImageProcessor(FetchCache):
 
         :param task: the task information
         """
+        loop = asyncio.get_event_loop()
         async with task.profile.use_source(task.info, task.size_hint) as source_path:
-            await self.loop.run_in_executor(self.executor, process_image_request, source_path,
-                                            task.store_path, task.ops)
+            await loop.run_in_executor(self.executor, process_image_request, source_path,
+                                       task.store_path, task.ops)
 
     def stop(self):
         """
