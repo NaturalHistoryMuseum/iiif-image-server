@@ -4,10 +4,10 @@ from pathlib import Path
 
 from contextlib import suppress
 
-from iiif.exceptions import invalid_iiif_parameter
+from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
 
-# this server currently supports IIIF level1
+# this server currently supports IIIF level2
 IIIF_LEVEL = 2
 
 
@@ -81,7 +81,7 @@ def parse_region(region: str, info: ImageInfo) -> Region:
                 return Region(x, y, w, h, full=(w == info.width and h == info.height))
 
     # if we get here, the region is no good :(
-    raise invalid_iiif_parameter('Region', region)
+    raise InvalidIIIFParameter('Region', region)
 
 
 @dataclass
@@ -147,7 +147,7 @@ def parse_size(size: str, region: Region) -> Size:
         if 0 < w <= region.w and 0 < h <= region.h:
             return Size(w, h, max=(w == region.w and h == region.h))
 
-    raise invalid_iiif_parameter('Size', size)
+    raise InvalidIIIFParameter('Size', size)
 
 
 @dataclass
@@ -189,7 +189,7 @@ def parse_rotation(rotation: str) -> Rotation:
         if angle in allowed_angles:
             return Rotation(angle, mirror)
 
-    raise invalid_iiif_parameter('Rotation', rotation)
+    raise InvalidIIIFParameter('Rotation', rotation)
 
 
 class Quality(Enum):
@@ -213,7 +213,7 @@ def parse_quality(quality: str) -> Quality:
         if option.value == quality:
             return option
 
-    raise invalid_iiif_parameter('Quality', quality)
+    raise InvalidIIIFParameter('Quality', quality)
 
 
 class Format(Enum):
@@ -235,7 +235,7 @@ def parse_format(fmt: str) -> Format:
         if option.value == fmt:
             return option
 
-    raise invalid_iiif_parameter('Format', fmt)
+    raise InvalidIIIFParameter('Format', fmt)
 
 
 def parse_params(info: ImageInfo, region: str = 'full', size: str = 'max', rotation: str = '0',

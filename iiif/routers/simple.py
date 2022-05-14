@@ -1,7 +1,6 @@
 from fastapi import APIRouter
 from starlette.responses import FileResponse, StreamingResponse
 
-from iiif.exceptions import image_not_found
 from iiif.routers.iiif import get_image_data
 from iiif.state import state
 from iiif.utils import parse_identifier, get_mimetype
@@ -70,12 +69,14 @@ async def original(identifier: str) -> StreamingResponse:
     profile_name, name = parse_identifier(identifier)
     profile = state.get_profile(profile_name)
     filename = await profile.resolve_filename(name)
-    if filename is None:
-        raise image_not_found()
+    length = await profile.resolve_original_size(name)
     response = StreamingResponse(
         profile.stream_original(name, chunk_size=state.config.download_chunk_size),
         media_type=get_mimetype(filename),
         # note the quoted file name, this avoids client-side errors if the filename contains a comma
-        headers={'content-disposition': f'attachment; filename="{filename}"'}
+        headers={
+            'content-disposition': f'attachment; filename="{filename}"',
+            'content-length': str(length)
+        }
     )
     return response

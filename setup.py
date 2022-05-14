@@ -11,11 +11,10 @@ with open("README.md", "r") as readme_file:
 jpegtran_url = 'git+https://github.com/jbaiter/jpegtran-cffi.git@70928eb#egg=jpegtran-cffi'
 
 install_dependencies = [
-    'aiocron~=1.4',
     'aiofiles~=0.6.0',
-    'aiohttp[speedups]~=3.7.4',
+    'aiohttp[speedups]~=3.8.1',
     'aiozipstream~=0.4',
-    'cachetools~=4.2.4',
+    'cachetools~=5.0.0',
     'cffi~=1.14.5',
     'elasticsearch-dsl>=6.0.0,<7.0.0',
     'fastapi~=0.63.0',
@@ -23,13 +22,15 @@ install_dependencies = [
     f'jpegtran-cffi @ {jpegtran_url}',
     'pillow~=8.2.0',
     'pyyaml~=5.4.1',
-    'uvicorn[standard]~=0.13.4',
+    'uvicorn[standard]~=0.17.6',
     'wand~=0.6.7',
+    'anyio~=3.5.0',
 ]
 test_dependencies = [
     'pytest',
     'pytest-asyncio',
     'pytest-cov',
+    'aioresponses~=0.7.3',
     # needed by starlette's test client
     'requests',
 ]

@@ -1,23 +1,63 @@
-import asyncio
-from concurrent.futures.process import ProcessPoolExecutor
-from pathlib import Path
-from typing import Tuple, List, Optional
-from urllib.parse import quote
+from concurrent.futures import ProcessPoolExecutor, Executor
 
-import aiocron as aiocron
-import aiohttp
+import asyncio
 import json
+import logging
 import shutil
 import tempfile
-import time
-from contextlib import AsyncExitStack
+from aiohttp import ClientResponse, ClientError
+from cachetools import TTLCache
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from elasticsearch_dsl import Search
-from fastapi import HTTPException
-from itertools import cycle, chain
+from functools import partial
+from itertools import cycle
+from pathlib import Path
+from typing import List
+from typing import Tuple, Optional
+from urllib.parse import quote
 
 from iiif.config import Config
+from iiif.exceptions import Timeout, IIIFServerException, ImageNotFound, log_error
 from iiif.profiles.base import AbstractProfile, ImageInfo
-from iiif.utils import OnceRunner, convert_image, get_size
+from iiif.utils import Locker, convert_image, create_client_session, FetchCache, Fetchable
+from iiif.utils import get_size
+
+
+class MSSAccessDenied(ImageNotFound):
+
+    def __init__(self, profile: str, name: str, emu_irn: int):
+        super().__init__(profile, name,
+                         log=f"MSS denied access to multimedia IRN {emu_irn} [guid: {name}]")
+        self.emu_irn = emu_irn
+
+
+class MSSDocDuplicates(ImageNotFound):
+
+    def __init__(self, profile: str, name: str, total: int):
+        super().__init__(profile, name, log=f"Found {total} MSS docs for the guid {name}")
+        self.total = total
+
+
+class MSSDocNotFound(ImageNotFound):
+
+    def __init__(self, profile: str, name: str):
+        super().__init__(profile, name, log=f"No MSS doc found for the guid {name}")
+
+
+class MSSStoreFailure(IIIFServerException):
+
+    def __init__(self, profile: str, name: str, cause: 'StoreStreamError'):
+        super().__init__(f'Failed to retrieve the requested image data for {name} from the '
+                         f'{profile} backend, try again', status_code=503,
+                         log=f'Failed to stream the source file for {profile}:{name} from '
+                             f'{cause.url} due to {cause.cause}')
+
+
+class MSSStoreNoLength(IIIFServerException):
+
+    def __init__(self, profile: str, name: str):
+        super().__init__(f'Failed to get data length for {name} from the {profile} backend.')
 
 
 class MSSImageInfo(ImageInfo):
@@ -34,7 +74,7 @@ class MSSImageInfo(ImageInfo):
         super().__init__(profile_name, name, doc.get('width', None), doc.get('height', None))
         self.doc = doc
         self.emu_irn = doc['id']
-        # the name of the original file as it appears on SCALE
+        # the name of the original file as it appears on the actual filesystem EMu is using
         self.original = doc['file']
         # a list of the EMu generated derivatives of the original file. The list should already be
         # in the ascending (width, height) order because the import process sorts it
@@ -58,9 +98,6 @@ class MSSImageInfo(ImageInfo):
 
 
 class MSSProfile(AbstractProfile):
-    """
-    Profile for the MSS service which provides access to the images stored in EMu.
-    """
 
     def __init__(self,
                  name: str,
@@ -68,318 +105,471 @@ class MSSProfile(AbstractProfile):
                  rights: str,
                  es_hosts: List[str],
                  mss_url: str,
-                 ic_fast_pool_size: int,
-                 ic_slow_pool_size: int,
-                 collection_indices: List[str],
-                 mss_index: str = 'mss',
-                 es_limit: int = 100,
-                 doc_cache_size: int = 1_000_000,
-                 doc_exception_timeout: int = 0,
-                 mss_limit: int = 20,
-                 fetch_cache_size: int = 1_000_000,
-                 fetch_exception_timeout: int = 0,
-                 ic_quality: int = 85,
-                 ic_subsampling: str = '4:2:0',
-                 dm_limit: int = 4,
                  mss_ssl: bool = True,
-                 dm_ssl: bool = True,
+                 mss_index: str = 'mss',
+                 mss_limit: int = 10,
+                 es_limit: int = 10,
+                 info_cache_size: int = 100_000,
+                 info_cache_ttl: float = 43_200,
+                 info_lock_ttl: float = 60,
+                 source_cache_size: int = 1024 * 1024 * 256,
+                 source_cache_ttl: float = 12 * 60 * 60,
+                 convert_fast_pool_size: int = 1,
+                 convert_slow_pool_size: int = 1,
+                 convert_quality: int = 85,
+                 convert_subsampling: str = '4:2:0',
+                 dams_limit: int = 4,
+                 dams_ssl: bool = True,
                  **kwargs
                  ):
         """
         :param name: the name of this profile
-        :param config: the config object
+        :param config: the Config object
         :param rights: the rights url for images served by this profile
         :param es_hosts: a list of elasticsearch hosts to use
         :param mss_url: mss base url
-        :param ic_fast_pool_size: the size of the fast source image conversion pool (currently,
-                                  source images that are already jpegs are put in this pool)
-        :param ic_slow_pool_size: the size of the slow source image conversion pool (currently,
-                                  source images that are not jpegs (most likely tiffs) are put in
-                                  this pool)
-        :param collection_indices: the indices to search to confirm the images can be accessed
-        :param mss_index: the name of the MSS index
-        :param es_limit: the number of elasticsearch requests that can be active simultaneously
-        :param doc_cache_size: the size of the cache for doc results
-        :param doc_exception_timeout: timeout for exceptions that occur during doc retrieval
-        :param mss_limit: the number of mss requests that can be active simultaneously
-        :param fetch_cache_size: the size of the cache for fetch results
-        :param fetch_exception_timeout: timeout for exceptions that occur during fetching
-        :param ic_quality: the jpeg quality to use when converting images
-        :param ic_subsampling: the jpeg subsampling to use when converting images
-        :param dm_limit: the number of dams requests that can be active simultaneously
         :param mss_ssl: boolean indicating whether ssl certificates should be checked when making
                         requests to mss
-        :param dm_ssl: boolean indicating whether ssl certificates should be checked when making
-                       requests to dams
+        :param mss_index: the MSS index name in elasticsearch
+        :param mss_limit: the maximum number of simultaneous connections that can be made to the MSS
+        :param es_limit: the maximum number of simultaneous connections that can be made to
+                         elasticsearch
+        :param info_cache_size: max size of the caches related to the metadata of the image
+        :param info_cache_ttl: ttl of the data in the caches related to the metadata of the image
+        :param info_lock_ttl: how long to lock for when gathering the metadata about an image from
+                              the various sources. Note that this needs to cover Elasticsearch and
+                              MSS requests as well as potentially downloading the source image (in
+                              order to find out the size)
+        :param source_cache_size: max size in bytes of the source cache on disk
+        :param source_cache_ttl: ttl of each source image in the cache
+        :param convert_fast_pool_size: how many processes to use for converting "fast" images
+        :param convert_slow_pool_size: how many processes to use for converting "slow" images
+        :param convert_quality: quality to use when converting a source to a jpeg
+        :param convert_subsampling: subsampling value to use when converting a source to a jpeg
+        :param dams_limit: the maximum number of simultaneous connections that can be made to the
+                           old dams service (to retrieve files stored at the damsurlfile value)
+        :param dams_ssl: boolean indicating whether ssl certificates should be checked when making
+                         requests to dams
+        :param kwargs: extra kwargs for the AbstractProfile base class __init__
         """
         super().__init__(name, config, rights, **kwargs)
-        self.loop = asyncio.get_event_loop()
-        # runners
-        self.doc_runner = OnceRunner('doc', doc_cache_size, doc_exception_timeout)
-        self.fetch_runner = OnceRunner('fetch', fetch_cache_size, fetch_exception_timeout)
-        # elasticsearch
-        self.es_hosts = cycle(es_hosts)
-        self.es_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=es_limit))
-        self.collection_indices = ','.join(collection_indices)
-        self.mss_index = mss_index
-        # MSS
-        self.mss_url = mss_url
-        self.mss_ssl = None if mss_ssl else False
-        self.mss_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=mss_limit,
-                                                                                ssl=mss_ssl))
-        # dams
-        self.dm_ssl = None if dm_ssl else False
-        self.dm_session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=dm_limit,
-                                                                               ssl=dm_ssl))
-        # image conversion
-        self.ic_fast_pool = ProcessPoolExecutor(max_workers=ic_slow_pool_size)
-        self.ic_slow_pool = ProcessPoolExecutor(max_workers=ic_fast_pool_size)
-        self.ic_quality = ic_quality
-        self.ic_subsampling = ic_subsampling
-        # start a cron to make sure we check the access for each image we have cached every hour
-        self.clean_up_cron = aiocron.crontab('0 * * * *', func=self.clean_up)
+        self.info_cache = TTLCache(info_cache_size, info_cache_ttl)
+        self.get_info_locker = Locker(default_timeout=info_lock_ttl)
 
-    async def clean_up(self) -> int:
+        self.get_mss_doc_locker = Locker(default_timeout=info_lock_ttl)
+        self.mss_doc_cache = TTLCache(maxsize=info_cache_size, ttl=info_cache_ttl)
+
+        self.es_handler = MSSElasticsearchHandler(es_hosts, es_limit, mss_index)
+        self.store = MSSSourceStore(self.source_path, mss_url, source_cache_size,
+                                    source_cache_ttl, mss_limit, dams_limit, mss_ssl,
+                                    dams_ssl, convert_slow_pool_size, convert_fast_pool_size,
+                                    convert_quality, convert_subsampling)
+
+    async def get_info(self, name: str) -> MSSImageInfo:
         """
-        Call this function to clean up cached data for images that shouldn't be accessible any more.
-        This could be called on the same basis as the data importer but instead we simplify and call
-        it way more, i.e. every hour (see the clean_up_cron attr defined above).
-
-        Cached image data, source image data, image info metadata and cached info.json dicts are all
-        removed if an image is no longer accessible.
-
-        :return: the number of images that had data removed
-        """
-        removed = 0
-        # use the cache dir, source dir and info.json cache as sources for the names to remove. We
-        # could also use the fetch runner but given that we're using the source dir already and
-        # that's where the fetch runner writes to it seems unnecessary
-        name_sources = chain(self.cache_path.iterdir(), self.source_path.iterdir(),
-                             self.info_json_cache.keys())
-        names = {path.name for path in name_sources}
-        for name in names:
-            doc = await self.get_mss_doc(name, refresh=True)
-            if doc is None:
-                shutil.rmtree(self.cache_path / name)
-                shutil.rmtree(self.source_path / name)
-                self.fetch_runner.expire_matching(lambda task_id: task_id.startswith(f'{name}::'))
-                self.info_json_cache.pop(name, None)
-                removed += 1
-
-        self.logger.warning(f'Clean up removed {removed} images that are no longer available')
-        return removed
-
-    async def get_info(self, name: str) -> Optional[MSSImageInfo]:
-        """
-        Given an image name (a GUID) returns a MSSImageInfo object or None if the image can't be
-        found/isn't allowed to be accessed. If the image doesn't have width and height stored in the
-        elasticsearch index for whatever reason then the image will be retrieved and the size
-        extracted.
+        Given an image name (a GUID) returns a MSSImageInfo object or raise an exception if the
+        image can't be found/isn't allowed to be accessed. If the image doesn't have width and
+        height stored in the elasticsearch index for whatever reason then the original source image
+        will be retrieved and the size extracted.
 
         :param name: the GUID of the image
-        :return: an MSSImageInfo instance or None
+        :return: an MSSImageInfo instance
         """
-        doc = await self.get_mss_doc(name)
-        if doc is None:
-            return None
+        if name in self.info_cache:
+            return self.info_cache[name]
 
-        info = MSSImageInfo(self.name, name, doc)
+        try:
+            async with self.get_info_locker.acquire(name):
+                try:
+                    # double check that the cache hasn't been filled while we waited for the lock
+                    if name in self.info_cache:
+                        return self.info_cache[name]
 
-        if info.width is None or info.height is None:
-            source_path = await self.fetch_source(info)
-            info.width, info.height = get_size(source_path)
+                    doc = await self.get_mss_doc(name)
+                    info = MSSImageInfo(self.name, name, doc)
+                    if info.width is None or info.height is None:
+                        async with self.use_source(info) as source_path:
+                            info.width, info.height = get_size(source_path)
+                    self.info_cache[name] = info
+                    return info
+                except IIIFServerException:
+                    raise
+                except Exception as cause:
+                    e = ImageNotFound(
+                        self.name, f'An error occurred while processing an info request for {name}',
+                        cause=cause, level=logging.ERROR
+                    )
+                    raise e from cause
+        except asyncio.TimeoutError:
+            raise Timeout(cause=cause, log=f'Timeout while waiting for get_info lock on {name} in '
+                                           f'profile {self.name}')
 
-        return info
-
-    async def fetch_source(self, info: MSSImageInfo,
-                           target_size: Optional[Tuple[int, int]] = None) -> Path:
+    @asynccontextmanager
+    async def use_source(self, info: MSSImageInfo, size: Optional[Tuple[int, int]] = None) -> Path:
         """
-        Given a MSSImageInfo object retrieve a source image that can be used to fulfill future image
-        data requests. If no target size is provided then the size of the image is used as the
+        Given an MSSImageInfo object, retrieve a source image and yield the path where it is stored.
+        This is an async context manager and the while the context exists the source image will
+        remain on disk. If no target size is provided then the size of the image is used as the
         target size, this could result in either the original image being retrieved or a derivative
         of the same size (sometimes, it seems, EMu generates a jpeg derivative of the same size as
         the original). If the target size is provided then the smallest image available in MSS that
         can fulfill the request will be used.
 
         :param info: an MSSImageInfo instance
-        :param target_size: a target size 2-tuple or None
+        :param size: a target size 2-tuple or None
         :return: the path to the source image on disk
         """
         # if the target size isn't provided, fill it in using the full size of the image. This
         # provides useful functionality as it allows choose_file to return a full size derivative
         # of the image instead of the original if one is available
-        if target_size is None:
-            target_size = info.size
-        file = info.choose_file(target_size)
+        if size is None:
+            size = info.size
+        file = info.choose_file(size)
+        source = MSSSourceFile(info.emu_irn, file, info.original == file)
+        async with self.store.use(source) as path:
+            yield path
 
-        source_path = self.source_path / info.name / file
-        if source_path.exists():
-            return source_path
-
-        task_id = f'{info.name}::{file}'
-        is_original = file == info.original
-
-        async def download():
-            with tempfile.NamedTemporaryFile() as f:
-                async for chunk in self._fetch_file(info.emu_irn, file, is_original):
-                    f.write(chunk)
-                f.flush()
-
-                # to avoid the conversion pool sitting there just converting loads of giant tiffs
-                # and blocking anything else from going through, we have two pools with different
-                # priorities (this could have been implemented as a priority queue of some kind but
-                # this is easier and time is money, yo! Might as well let the OS do the scheduling).
-                if source_path.suffix.lower() in {'.jpeg', '.jpg'}:
-                    # jpegs are quick to convert
-                    pool = self.ic_fast_pool
-                else:
-                    # anything else is slower, tiffs for example
-                    pool = self.ic_slow_pool
-
-                # we've downloaded the file, convert it on a separate thread
-                await self.loop.run_in_executor(pool, convert_image, Path(f.name), source_path,
-                                                self.ic_quality, self.ic_subsampling)
-
-        # we only want to be downloading a source file once so use the runner
-        await self.fetch_runner.run(task_id, download)
-        return source_path
-
-    async def get_mss_doc(self, name: str, refresh: bool = False) -> Optional[dict]:
+    async def get_mss_doc(self, name: str) -> dict:
         """
-        Retrieves an MSS doc and ensures it's should be accessible. For a doc to be returned instead
-        of None:
+        Retrieves an MSS doc and ensures it's should be accessible. For a doc to be returned:
 
             - the GUID (i.e. the name) must be unique and exist in the mss elasticsearch index
             - the EMu IRN that the GUID maps to must be valid according the to the MSS (specifically
               the APS)
-            - the GUID (i.e. the name) must be found in either the specimen, index lot or
-              artefacts indices as an associated media item
 
         :param name: the image name (a GUID)
-        :param refresh: whether to enforce a refresh of the doc from elasticsearch rather than using
-                        the cache
-        :return: the mss doc as a dict or None
+        :return: the mss doc as a dict
         """
+        if name in self.mss_doc_cache:
+            return self.mss_doc_cache[name]
 
-        async def get_doc() -> Optional[dict]:
-            # first, check that we have a document in the mss index
-            search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-            search = Search().filter('term', **{'guid.keyword': name})
-            async with self.es_session.post(search_url, json=search.to_dict()) as response:
-                text = await response.text(encoding='utf-8')
-                result = json.loads(text)
-                if result['hits']['total'] == 1:
-                    doc = result['hits']['hits'][0]['_source']
-                    emu_irn = doc['id']
-                else:
-                    # TODO: might be nice to indicate if the GUID is not unique?
-                    return None
+        try:
+            async with self.get_mss_doc_locker.acquire(name):
+                try:
+                    # double check that the cache hasn't been filled while we waited for the lock
+                    if name in self.mss_doc_cache:
+                        return self.mss_doc_cache[name]
 
-            # next, check that the irn is associated with a record in the collection datasets
-            count_url = f'{next(self.es_hosts)}/{self.collection_indices}/_count'
-            search = Search() \
-                .filter('term', **{'data.associatedMedia._id': emu_irn}) \
-                .filter('term', **{'meta.versions': int(time.time() * 1000)})
-            async with self.es_session.post(count_url, json=search.to_dict()) as response:
-                text = await response.text(encoding='utf-8')
-                if json.loads(text)['count'] == 0:
-                    return None
+                    # first, get the document from the mss index
+                    total, doc = await self.es_handler.get_mss_doc(name)
+                    if total > 1:
+                        raise MSSDocDuplicates(self.name, name, total)
+                    elif total == 0:
+                        raise MSSDocNotFound(self.name, name)
 
-            # finally, check with mss that the irn is valid
-            async with self.mss_session.get(f'{self.mss_url}/{emu_irn}') as response:
-                if not response.ok:
-                    return None
+                    emu_irn = int(doc['id'])
 
-            # if we get here then all 3 checks have passed
-            return doc
+                    # check with mss that the irn is valid
+                    if not await self.store.check_access(emu_irn):
+                        raise MSSAccessDenied(self.name, name, emu_irn)
 
-        if refresh:
-            self.doc_runner.expire(name)
-        return await self.doc_runner.run(name, get_doc)
+                    self.mss_doc_cache[name] = doc
+                    return doc
+                except IIIFServerException:
+                    raise
+                except Exception as cause:
+                    e = ImageNotFound(self.name, name, cause=cause, level=logging.ERROR)
+                    raise e from cause
+        except asyncio.TimeoutError:
+            raise Timeout(cause=cause, log=f'Timeout while waiting for get_mss_doc lock on {name} '
+                                           f'in profile {self.name}')
 
-    async def resolve_filename(self, name: str) -> Optional[str]:
+    async def resolve_filename(self, name: str) -> str:
         """
-        Given an image name (i.e. IRN), return the original filename or None if the image can't be
-        found.
+        Given an image name (i.e. a GUID), return the original filename or None if the image can't
+        be found.
 
-        :param name: the image name (in this case the IRN)
-        :return: the filename or None
+        :param name: the image name (in this case the GUID)
+        :return: the filename
         """
         doc = await self.get_mss_doc(name)
-        return doc['file'] if doc is not None else None
+        return doc['file']
 
-    async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
+    async def resolve_original_size(self, name: str) -> int:
+        """
+        Given an image name (i.e. a GUID), return the size of the original image. This relies on the
+        server which is actually serving up the original file data telling us how big the file is
+        through a content-length header. This means we're using the actual filesize, not relying on
+        the data EMu has to hand (which, if the file has been modified directly on disk, may not be
+        correct and would cause issues if we presented an incorrect content-length).
+
+        :param name: the image name (in this case the GUID)
+        :return: the size of the original image in bytes
+        """
+        try:
+            doc = await self.get_mss_doc(name)
+            source = MSSSourceFile(int(doc['id']), doc['file'], True)
+            return await self.store.get_file_size(source)
+        except StoreStreamNoLength:
+            raise MSSStoreNoLength(self.name, name)
+        except StoreStreamError as cause:
+            raise MSSStoreFailure(self.name, name, cause)
+
+    async def stream_original(self, name: str, chunk_size: int = 4096):
         """
         Async generator which yields the bytes of the original image for the given image name (EMu
         IRN). If the image isn't available then nothing is yielded.
 
         :param name: the name of the image (EMu IRN)
         :param chunk_size: the size of the chunks to yield
-        :param raise_errors: whether to raise errors when they happen or simply stop, swallowing the
-                             error
         """
-        doc = await self.get_mss_doc(name)
-        if doc is not None:
-            try:
-                async for chunk in self._fetch_file(doc['id'], doc['file'], True, chunk_size):
-                    yield chunk
-            except Exception as e:
-                if raise_errors:
-                    raise e
-
-    async def _fetch_file(self, emu_irn: str, file: str, is_original: bool, chunk_size: int = 4096):
-        """
-        Fetches a file from MSS or, if the file is the original and doesn't exist in MSS, the old
-        dams servers. Once a source for the requested file is located, the bytes are yielded in
-        chunks of chunk_size.
-
-        :param emu_irn: the EMu IRN of the multimedia record for the file
-        :param file: the name of the file to retrieve
-        :param is_original: whether the file is an original image (if it is and the file doesn't
-                            exist in MSS we'll try looking for a damsurl file)
-        """
-        async with AsyncExitStack() as stack:
-            file_url = f'{self.mss_url}/{emu_irn}/{quote(file)}'
-            response = await stack.enter_async_context(self.mss_session.get(file_url))
-
-            if response.status == 401:
-                raise HTTPException(status_code=401, detail=f'Access denied')
-
-            if response.status == 404 and is_original:
-                # check for a damsurl file
-                damsurl_file = f'{self.mss_url}/{emu_irn}/damsurl'
-                response = await stack.enter_async_context(self.mss_session.get(damsurl_file))
-                response.raise_for_status()
-
-                # load the url in the response and fetch it
-                damsurl = await response.text(encoding='utf-8')
-                response = await stack.enter_async_context(self.dm_session.get(damsurl))
-
-            response.raise_for_status()
-
-            while chunk := await response.content.read(chunk_size):
+        try:
+            doc = await self.get_mss_doc(name)
+            source = MSSSourceFile(int(doc['id']), doc['file'], True, chunk_size)
+            async for chunk in self.store.stream(source):
                 yield chunk
+        except StoreStreamError as cause:
+            e = MSSStoreFailure(self.name, name, cause)
+            # it's highly likely this error won't get surfaced through the exception handler because
+            # the response has likely already begun, so log it before raising it to ensure we can
+            # see what happened
+            log_error(e)
+            raise e
 
     async def close(self):
         """
         Close down this profile.
         """
+        await self.es_handler.close()
+        await self.store.close()
+
+    async def get_status(self) -> dict:
+        status = await super().get_status()
+        status['source_cache'] = await self.store.get_status()
+        return status
+
+
+class MSSElasticsearchHandler:
+    """
+    Class that handles requests to Elasticsearch for the MSS profile.
+    """
+
+    def __init__(self, es_hosts: List[str], limit: int = 20, mss_index: str = 'mss'):
+        """
+        :param es_hosts: a list of elasticsearch hosts to use
+        :param limit: the maximum number of simultaneous connections that can be made to
+                         elasticsearch
+        :param mss_index: the MSS index name in elasticsearch
+        """
+        self.es_hosts = cycle(es_hosts)
+        self.es_session = create_client_session(limit, ssl=False)
+        self.mss_index = mss_index
+
+    async def get_mss_doc(self, guid: str) -> Tuple[int, Optional[dict]]:
+        """
+        Given a GUID, return the number of MSS doc hits and the first hit from the MSS index.
+
+        :param guid: the GUID of the image
+        :return: the total number of hits and the first hit's source
+        """
+        search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
+        search = Search().filter('term', **{'guid.keyword': guid}).extra(size=1)
+        async with self.es_session.post(search_url, json=search.to_dict()) as response:
+            text = await response.text(encoding='utf-8')
+            result = json.loads(text)
+            total = result['hits']['total']
+            first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
+            return total, first_doc
+
+    async def close(self):
         await self.es_session.close()
+
+
+@dataclass
+class MSSSourceFile(Fetchable):
+    """
+    Fetchable subclass representing an image in the MSS that can be retrieved.
+    """
+    emu_irn: int
+    file: str
+    is_original: bool
+    chunk_size: int = 4096
+
+    @property
+    def public_name(self) -> str:
+        return str(self.emu_irn)
+
+    @property
+    def store_path(self) -> Path:
+        return Path(str(self.emu_irn), self.file)
+
+    @property
+    def url(self) -> str:
+        return f'/nhmlive/{self.emu_irn}/{quote(self.file)}'
+
+    @property
+    def dams_url(self) -> str:
+        return f'/nhmlive/{self.emu_irn}/damsurl'
+
+    @staticmethod
+    def check_url(emu_irn: int) -> str:
+        return f'/nhmlive/{emu_irn}'
+
+
+class StoreStreamError(Exception):
+
+    def __init__(self, source: MSSSourceFile, url: str, cause: ClientError):
+        super().__init__()
+        self.source = source
+        self.url = url
+        self.cause = cause
+
+
+class StoreStreamNoLength(Exception):
+    pass
+
+
+class MSSSourceStore(FetchCache):
+    """
+    Class that controls fetching source files from the MSS and then storing them in a cache and
+    streaming them to users directly.
+    """
+
+    def __init__(self, root: Path, mss_url: str, max_size: int, ttl: float,
+                 mss_limit: int = 20, dams_limit: int = 5, mss_ssl: bool = True,
+                 dams_ssl: bool = True, slow_pool_size: int = 1, fast_pool_size: int = 1,
+                 quality: int = 85, subsampling: str = '4:2:0'):
+        """
+        :param root: the path to store the data
+        :param mss_url: the MSS base URL
+        :param max_size: maximum size that the cache can grow to
+        :param ttl: the maximum time a source file can be unused before it is removed
+        :param mss_limit: the maximum number of simultaneous connections allowed to the MSS
+        :param dams_limit: the maximum number of simultaneous connections allowed to the dams
+        :param mss_ssl: whether to use SSL for MSS connections
+        :param dams_ssl: whether to use SSL for the dams connections
+        :param slow_pool_size: size of the "slow" conversion pool
+        :param fast_pool_size: size of the "fast" conversion pool
+        :param quality: jpeg quality of converted source files
+        :param subsampling: jpeg subsampling value of converted source files
+        """
+        super().__init__(root, ttl, max_size)
+        self.mss_session = create_client_session(mss_limit, mss_ssl, mss_url)
+        self.dm_session = create_client_session(dams_limit, dams_ssl)
+        self._fast_pool = ProcessPoolExecutor(max_workers=slow_pool_size)
+        self._slow_pool = ProcessPoolExecutor(max_workers=fast_pool_size)
+        self._convert = partial(convert_image, quality=quality, subsampling=subsampling)
+
+    async def _fetch(self, source: MSSSourceFile):
+        """
+        Fetch a file from the MSS and store it in the cache.
+
+        :param source: the source
+        """
+        with tempfile.NamedTemporaryFile() as f:
+            image_path = Path(f.name)
+            async for chunk in self.stream(source):
+                f.write(chunk)
+            f.flush()
+
+            # convert the image file, saving the data in a temp file but then moving it
+            # to the source_path after the conversion is complete
+            with tempfile.NamedTemporaryFile(delete=False) as g:
+                target_path = Path(g.name)
+
+                pool = self._choose_convert_pool(source.file)
+                convert = partial(self._convert, image_path, target_path)
+                await asyncio.get_running_loop().run_in_executor(pool, convert)
+
+                cache_path = self.root / source.store_path
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(target_path, cache_path)
+
+    @asynccontextmanager
+    async def _open_stream(self, source: MSSSourceFile) -> ClientResponse:
+        """
+        Opens a stream to the requested source data file. This is returned in the form of an aiohttp
+        ClientResponse object which will be correctly closed once this context manager exits. The
+        response may come from the MSS or it may come from the old dams service (via the damsurl
+        file).
+
+        :param source: the source file requested
+        :return: a ClientResponse object
+        """
+        check_dams = False
+        current_url = source.url
+        try:
+            async with self.mss_session.get(source.url) as mss_response:
+                if mss_response.status == 404:
+                    check_dams = True
+                else:
+                    mss_response.raise_for_status()
+                    yield mss_response
+
+            if check_dams:
+                current_url = source.dams_url
+                async with self.mss_session.get(source.dams_url) as mss_response:
+                    mss_response.raise_for_status()
+                    # load the url in the response and fetch it
+                    dams_url = await mss_response.text(encoding='utf-8')
+
+                current_url = dams_url
+                async with self.dm_session.get(dams_url) as dams_response:
+                    dams_response.raise_for_status()
+                    yield dams_response
+        except ClientError as e:
+            raise StoreStreamError(source, current_url, e)
+
+    async def stream(self, source: MSSSourceFile):
+        """
+        Stream the given source file directly from the MSS/dams.
+
+        :param source: the source
+        :return: yields chunks of bytes
+        """
+        async with self._open_stream(source) as response:
+            while chunk := await response.content.read(source.chunk_size):
+                yield chunk
+
+    async def get_file_size(self, source: MSSSourceFile) -> int:
+        """
+        Returns the file size of the given source by connecting to the backend service that can
+        provide the source and returning the content-length. No body data is read, just the headers.
+
+        :param source: the source
+        :return: the size of the file in bytes
+        """
+        async with self._open_stream(source) as response:
+            size = response.headers.get('content-length')
+            if size is None:
+                raise StoreStreamNoLength('The backend returned no content-length')
+            return int(size)
+
+    def _choose_convert_pool(self, file: str) -> Executor:
+        """
+        Pick the pool to use for converting the given file. JPEGs are converted in the fast pool
+        whereas everything else is done in the slow pool.
+
+        To avoid the conversion pool sitting there just converting loads of giant tiffs and blocking
+        anything else from going through, we have two pools with different priorities (this could
+        have been implemented as a priority queue of some kind but this is easier and time is money,
+        yo! Might as well let the OS do the scheduling).
+
+        :param file: the file name
+        :return: which pool to convert in
+        """
+        if Path(file).suffix.lower() in ('.jpeg', '.jpg'):
+            return self._fast_pool
+        else:
+            return self._slow_pool
+
+    async def check_access(self, emu_irn: int) -> bool:
+        """
+        Check whether the EMu multimedia IRN is valid according to the APS (which is a part of the
+        MSS).
+
+        :param emu_irn: the EMu multimedia IRN
+        :return: True if it's ok, False if not
+        """
+        async with self.mss_session.get(MSSSourceFile.check_url(emu_irn)) as response:
+            return response.ok
+
+    async def close(self):
+        """
+        Close down the store, this will simply close out our sessions and pools, all the files are
+        left on the disk.
+        """
         await self.mss_session.close()
         await self.dm_session.close()
-        self.ic_fast_pool.shutdown()
-        self.ic_slow_pool.shutdown()
-
-    async def get_status(self, full: bool = False) -> dict:
-        """
-        Returns some nice stats about what the runners are up to and such.
-
-        :return: a dict of stats
-        """
-        status = await super().get_status(full)
-        runners = (self.doc_runner, self.fetch_runner)
-        status['runners'] = {
-            runner.name: await runner.get_status() for runner in runners
-        }
-        # TODO: add pool stats
-        return status
+        self._fast_pool.shutdown()
+        self._slow_pool.shutdown()

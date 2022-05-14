@@ -12,6 +12,9 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v2
 
+      - name: Update OS package list
+        run: sudo apt-get update
+
       - name: Install OS dependencies
         run: sudo apt-get -y install libffi-dev libturbojpeg0-dev libjpeg-dev libpcre3 libpcre3-dev libcurl4-openssl-dev libssl-dev build-essential libmagickwand-dev
 

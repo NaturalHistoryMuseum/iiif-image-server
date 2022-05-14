@@ -1,151 +1,73 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+from collections import OrderedDict, Counter
 
+import abc
+import aiohttp
 import asyncio
-from asyncio import Future
-from pathlib import Path
-from typing import Callable, Awaitable, Optional, Tuple, Union
-
 import humanize
 import io
 import logging
 import mimetypes
-import sys
 from PIL import Image
-from cachetools import LRUCache
-from contextlib import contextmanager
+from contextlib import suppress, asynccontextmanager
 from functools import lru_cache
 from itertools import count
 from jpegtran import JPEGImage
-from wand.exceptions import MissingDelegateError
+from pathlib import Path
+from typing import Optional, Tuple, Union, Any
+from wand.exceptions import WandException
 from wand.image import Image as WandImage
 
 mimetypes.init()
 
+# this is all assuming we're using uvicorn...
+uvicorn_logger = logging.getLogger('uvicorn.error')
+# use this logger to dump stuff into the same channels as the uvicorn logs
+logger = uvicorn_logger.getChild('iiif')
 
-class OnceRunner:
+
+class Locker:
     """
-    This class runs tasks and caches the results. It ensures that a task is only actually run the
-    first time it is submitted and any later calls use the cached result of the first run.
+    A normal async Lock surrounded by a timeout.
     """
 
-    def __init__(self, name: str, size: int, exception_timeout: Optional[float] = 0):
+    def __init__(self, default_timeout: float = 0):
         """
-        :param name: the name of the runner
-        :param size: the maximum size of the LRU cache used to store task results
-        :param exception_timeout: minimum time in seconds to wait before trying a task again if it
-                                  raises an exception. Pass 0 to never try the task again (default).
+        :param default_timeout: how long to timeout the locks for by default (defaults to 0 which
+                                means don't timeout, just lock forever).
         """
-        self.name = name
-        self.results = LRUCache(size)
-        self.exception_timeout = exception_timeout
-        self.waiting = 0
-        self.working = 0
-        self.loop = asyncio.get_event_loop()
+        self._locks = {}
+        self.default_timeout = default_timeout
 
-    async def run(self, task_id: str, task: Callable[..., Awaitable], *args, **kwargs):
-        """
-        Given a task and it's unique identifier, either run the task if it's the first time we've
-        seen it or return the cached result of a previous run. If the task passed is currently
-        running then the result is awaited and returned once the first instance of the task
-        completes.
+    @asynccontextmanager
+    async def acquire(self, key: Any, timeout: Optional[float] = None):
+        if timeout is None:
+            timeout = self.default_timeout
 
-        :param task_id: the task's id
-        :param task: the task itself, this should be a reference to an async function
-        :param args: the args to pass to the async function when running it
-        :param kwargs: the kwargs to pass to the async function when running it
-        :return: the task's return value
-        """
-        if task_id in self.results:
-            with self.wait():
-                # this will either resolve instantaneously because the future in the results cache
-                # is done or it will wait for the task that is populating the future to complete
-                return await self.results[task_id]
-
-        with self.work():
-            self.results[task_id] = Future()
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        if timeout > 0:
+            acquired = False
             try:
-                result = await task(*args, **kwargs)
-                self.results[task_id].set_result(result)
-                return result
-            except Exception as exception:
-                # set the exception on the future so that any future or concurrent requests for the
-                # same task get the same exception when they await it
-                self.results[task_id].set_exception(exception)
+                acquired = await asyncio.wait_for(lock.acquire(), timeout=timeout)
+                yield
+            except asyncio.TimeoutError:
+                raise
+            finally:
+                if acquired:
+                    lock.release()
+        else:
+            async with lock:
+                yield
 
-                if self.exception_timeout:
-                    self.loop.call_later(self.exception_timeout, self.expire, task_id)
-
-                # raise it for the current caller
-                raise exception
-
-    def expire(self, task_id: str) -> bool:
+    def is_locked(self, key: Any) -> bool:
         """
-        Force the expiry of the given task by popping it from the cache.
+        Check if the given key is locked.
 
-        :param task_id: the id of the task to expire
-        :return: True if the task was evicted, False if it was already expired
+        :param key: the key
+        :return: True if the key is locked, False if not
         """
-        return self.results.pop(task_id, None) is not None
-
-    def expire_matching(self, filter_function: Callable[[str], bool]) -> int:
-        """
-        Expire the task results that match the given filter function. Returns the number of task
-        results that were expired.
-
-        :param filter_function: a function that when passed a str task ID returns True if the task
-                                result should be removed and False if not
-        :return: the number of tasks removed by the filter function
-        """
-        return sum(map(self.expire, filter(filter_function, list(self.results.keys()))))
-
-    async def get_status(self) -> dict:
-        """
-        Returns a status dict about the state of the runner.
-
-        :return: a dict of details
-        """
-        return {
-            'size': len(self.results),
-            'waiting': self.waiting,
-            'working': self.working,
-        }
-
-    @contextmanager
-    def wait(self):
-        """
-        Convenience context manager that increases and then decreases the waiting count around
-        whatever code it wraps.
-        """
-        self.waiting += 1
-        yield
-        self.waiting -= 1
-
-    @contextmanager
-    def work(self):
-        """
-        Convenience context manager that increases and then decreases the working count around
-        whatever code it wraps.
-        """
-        self.working += 1
-        yield
-        self.working -= 1
-
-
-def get_path_stats(path: Path) -> dict:
-    """
-    Calculates some statistics about the on disk path's files.
-
-    :param path: the path to investigate
-    :return: a dict of stats
-    """
-    sizes = [f.stat().st_size for f in path.glob('**/*') if f.is_file()]
-    size = sum(sizes)
-    return {
-        'count': len(sizes),
-        'size_bytes': size,
-        'size_pretty': humanize.naturalsize(size, binary=True),
-    }
+        return key in self._locks and self._locks[key].locked()
 
 
 def get_size(path: Path) -> Tuple[int, int]:
@@ -213,7 +135,7 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
             target_path.parent.mkdir(parents=True, exist_ok=True)
             with target_path.open('wb') as f:
                 image.save(file=f)
-    except MissingDelegateError:
+    except WandException:
         with Image.open(image_path) as image:
             if image.format.lower() == 'jpeg':
                 exif = image.getexif()
@@ -223,23 +145,6 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
             image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
-
-
-def create_logger(name: str, level: Union[int, str]) -> logging.Logger:
-    """
-    Creates a logger with the given name that outputs to stdout and returns it.
-
-    :param name: the logger name
-    :param level: the logger level
-    :return: the logger instance
-    """
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(level)
-    formatter = logging.Formatter('%(asctime)s %(levelname)s [%(name)s]: %(message)s')
-    handler.setFormatter(formatter)
-    logger = logging.getLogger(name)
-    logger.addHandler(handler)
-    return logger
 
 
 def parse_identifier(identifier: str) -> Tuple[Optional[str], str]:
@@ -290,3 +195,208 @@ def get_mimetype(filename: Union[str, Path]) -> str:
     guess = mimetypes.guess_type(filename)[0]
     # use octet stream as the default
     return guess if guess is not None else 'application/octet-stream'
+
+
+def create_client_session(limit: int, ssl: bool = True,
+                          base_url: Optional[str] = None) -> aiohttp.ClientSession:
+    """
+    Convenience function to create a new aiohttp session object.
+
+    :param limit: the maximum number of simultaneous connections allowed
+    :param ssl: whether to verify SSL certs or not
+    :param base_url: the base URL for all requests made with this session
+    :return: a new aiohttp.ClientSession object
+    """
+    # if we want to use ssl this parameter needs to be set to None, if not then False is used
+    ssl = None if ssl else False
+    return aiohttp.ClientSession(base_url=base_url,
+                                 connector=aiohttp.TCPConnector(limit=limit, ssl=ssl))
+
+
+class Fetchable(abc.ABC):
+    """
+    Abstract base class of something that can be fetched by the FetchCache.
+    """
+
+    @property
+    @abc.abstractmethod
+    def public_name(self) -> str:
+        """
+        A name to use in errors.
+        :return: a name that is acceptable for public users.
+        """
+        ...
+
+    @property
+    @abc.abstractmethod
+    def store_path(self) -> Path:
+        """
+        Where this fetchable will be stored in the store. This should be relative to the store root.
+        :return: the relative path where this fetchable should be stored
+        """
+        ...
+
+
+class FetchCache(abc.ABC):
+    """
+    A cache with TTL and LRU functionality which allows custom fetching of the data put in it.
+    """
+
+    def __init__(self, root: Path, ttl: float, max_size: float, clean_empty_dirs: bool = True,
+                 fetch_timeout: float = 120):
+        """
+        Note that this init will automatically call self.load() and therefore populate the cache.
+        This could take time if the cache is enormous.
+
+        :param root: the root under which all data will be stored
+        :param ttl: how long untouched files can stay in the cache before being removed
+        :param max_size: the maximum number of bytes that can be stored in the cache
+        :param clean_empty_dirs: whether to delete empty parent dirs when removing expired files
+        :param fetch_timeout: how long to wait for the _fetch function to complete
+        """
+        self.root = root
+        self.ttl = ttl
+        self.max_size = max_size
+        self.clean_empty_dirs = clean_empty_dirs
+        self.fetch_timeout = fetch_timeout
+        self.total_size = 0
+        self._in_use = Counter()
+        self._sizes = {}
+        self._locker = Locker()
+        self._cleaners = OrderedDict()
+        self.requests = 0
+        self.completed = 0
+        self.errors = 0
+        # let's see what currently exists
+        self.load()
+
+    def load(self):
+        """
+        Scan the root dir and add any found files into the cache.
+        """
+        for path in self.root.rglob('*'):
+            if path.is_file():
+                size = path.stat().st_size
+                self._sizes[path] = size
+                self._cleaners[path] = self._schedule_clean_up(path)
+                self.total_size += size
+        logger.info(f'Found {len(self._sizes)} files in {self.root} [{self.pct}]')
+
+    @property
+    def pct(self) -> str:
+        """
+        Returns the percentage usage of the cache as a number with 2 decimal points. This is mainly
+        a convenience for logging.
+
+        :return: the percentage the cache is in use as a formatted string
+        """
+        return f'{(self.total_size / self.max_size):.2f}%'
+
+    def _clean_up(self, path: Path):
+        """
+        Callback scheduled to clean up paths when their TTL expires.
+
+        :param path: the path to clean up
+        """
+        with suppress(KeyError):
+            self._cleaners.pop(path)
+
+        if path not in self._in_use:
+            if path.exists():
+                with suppress(Exception):
+                    path.unlink()
+                    if self.clean_empty_dirs:
+                        for parent in path.parents:
+                            if parent != self.root and not any(parent.iterdir()):
+                                parent.rmdir()
+                            else:
+                                break
+            self.total_size -= self._sizes.pop(path, 0)
+            logger.info(f'Cleaned up {path} [{self.pct}]')
+
+    def _schedule_clean_up(self, path: Path) -> asyncio.TimerHandle:
+        """
+        Add a callback to remove the given path after the TTL.
+
+        :param path: the path to remove
+        :return: a TimerHandle object
+        """
+        return asyncio.get_running_loop().call_later(self.ttl, self._clean_up, path)
+
+    def __contains__(self, relative_path: Path) -> bool:
+        """
+        Checks whether the given path is in use or not. This only checks the in use dict, not the
+        cleaners dict.
+
+        :param relative_path: the path (relative to the root)
+        :return: True if the path is in use, False if not
+        """
+        return self.root / relative_path in self._in_use
+
+    @abc.abstractmethod
+    async def _fetch(self, fetchable: Fetchable):
+        """
+        Abstract method which, when called, puts the requested fetchable file on disk.
+
+        :param fetchable: the fetchable
+        """
+        ...
+
+    @asynccontextmanager
+    async def use(self, fetchable: Fetchable) -> Path:
+        """
+        Async context manager which when entered ensures the given fetchable is on disk and provides
+        a path to it. Once the context manager exits the path is volatile and will expire according
+        to the TTL (once it is no longer in use by any other coroutines).
+
+        :param fetchable: the fetchable
+        :return: the full path to the file
+        """
+        self.requests += 1
+        path = self.root / fetchable.store_path
+
+        if path not in self._in_use:
+            if path in self._cleaners:
+                self._cleaners.pop(path).cancel()
+            elif not path.exists():
+                async with self._locker.acquire(path, timeout=self.fetch_timeout):
+                    if not path.exists():
+                        await self._fetch(fetchable)
+                        self._sizes[path] = path.stat().st_size
+                        self.total_size += self._sizes[path]
+
+                        times = 0
+                        while self._cleaners and self.total_size > self.max_size and times < 10:
+                            path_to_clean_up, handle = self._cleaners.popitem(last=False)
+                            handle.cancel()
+                            self._clean_up(path_to_clean_up)
+                            times += 1
+
+        self._in_use[path] += 1
+        try:
+            yield path
+        finally:
+            self._in_use[path] -= 1
+
+            if self._in_use[path] == 0:
+                del self._in_use[path]
+                self._cleaners[path] = self._schedule_clean_up(path)
+
+            self.completed += 1
+
+    async def get_status(self) -> dict:
+        """
+        Returns some basic stats about the cache as a dict.
+
+        :return: a dict of stats
+        """
+        return {
+            'requests': self.requests,
+            'completed': self.completed,
+            'errors': self.errors,
+            'cache_size': humanize.naturalsize(self.total_size, binary=True),
+            'max_size': humanize.naturalsize(self.max_size, binary=True),
+            'percentage_used': self.pct,
+            'in_use': len(self._in_use),
+            'waiting_clean_up': len(self._cleaners),
+        }
