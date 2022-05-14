@@ -300,7 +300,7 @@ class MSSProfile(AbstractProfile):
             doc = await self.get_mss_doc(name)
             source = MSSSourceFile(int(doc['id']), doc['file'], True)
             return await self.store.get_file_size(source)
-        except StoreStreamNoLength as e:
+        except StoreStreamNoLength:
             raise MSSStoreNoLength(self.name, name)
         except StoreStreamError as cause:
             raise MSSStoreFailure(self.name, name, cause)
