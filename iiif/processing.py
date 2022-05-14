@@ -78,7 +78,7 @@ def process_rotation(image: JPEGImage, rotation: Rotation) -> JPEGImage:
     if rotation.mirror:
         pillow_image = ImageOps.mirror(pillow_image)
     if rotation.angle > 0:
-        pillow_image = pillow_image.rotate(rotation.angle)
+        pillow_image = pillow_image.rotate(-rotation.angle, expand=True)
     return to_jpegtran(pillow_image)
 
 

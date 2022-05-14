@@ -96,7 +96,7 @@ class TestProcessRotation:
 
     def test_rotate(self, image: JPEGImage):
         result = process_rotation(image, Rotation(90))
-        assert_same(result, to_pillow(image).rotate(90))
+        assert_same(result, to_pillow(image).rotate(-90, expand=True))
 
     def test_mirror(self, image: JPEGImage):
         result = process_rotation(image, Rotation(0, mirror=True))
@@ -104,7 +104,7 @@ class TestProcessRotation:
 
     def test_rotate_and_mirror(self, image: JPEGImage):
         result = process_rotation(image, Rotation(90, mirror=True))
-        assert_same(result, ImageOps.mirror(to_pillow(image)).rotate(90))
+        assert_same(result, ImageOps.mirror(to_pillow(image)).rotate(-90, expand=True))
 
 
 class TestQuality:
