@@ -186,7 +186,7 @@ class TestParseQuality:
     def test_level2_color(self):
         assert parse_quality('color') == Quality.color
 
-    def test_level2_color(self):
+    def test_level2_colour(self):
         assert parse_quality('colour') == Quality.color
 
     def test_level2_gray(self):
@@ -202,6 +202,15 @@ class TestParseQuality:
         with pytest.raises(InvalidIIIFParameter) as exc_info:
             parse_quality('banana')
         assert exc_info.value.status_code == 400
+
+    def test_extras(self):
+        extras = Quality.extras()
+        for quality in Quality:
+            for value in quality.value:
+                if value == 'default':
+                    assert value not in extras
+                else:
+                    assert value in extras
 
 
 class TestParseFormat:

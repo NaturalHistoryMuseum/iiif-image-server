@@ -1,11 +1,9 @@
 import abc
-from cachetools import TTLCache
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Tuple, Optional, Any, AsyncIterable
 
 from iiif.config import Config
-from iiif.utils import generate_sizes
 
 
 class ImageInfo:
@@ -51,13 +49,11 @@ class AbstractProfile(abc.ABC):
     jpeg file, it can be processed in a common way (see the processing module).
     """
 
-    def __init__(self, name: str, config: Config, rights: str, info_json_cache_size: int = 1000,
-                 cache_for: float = 60):
+    def __init__(self, name: str, config: Config, rights: str, cache_for: float = 60):
         """
         :param name: the name of the profile, should be unique across profiles
         :param config: the config object
         :param rights: the rights definition for all images handled by this profile
-        :param info_json_cache_size: the size of the info.json cache
         :param cache_for: how long in seconds a client should cache the results from this profile
                           (both info.json and image data)
         """
@@ -70,7 +66,6 @@ class AbstractProfile(abc.ABC):
         self.rights = rights
         self.source_path.mkdir(exist_ok=True)
         self.cache_path.mkdir(exist_ok=True)
-        self.info_json_cache = TTLCache(maxsize=info_json_cache_size, ttl=cache_for)
         self.cache_for = cache_for
 
     @abc.abstractmethod
@@ -134,43 +129,6 @@ class AbstractProfile(abc.ABC):
         """
         ...
 
-    async def generate_info_json(self, info: ImageInfo, iiif_level: int) -> dict:
-        """
-        Generates an info.json dict for the given image. The info.json is cached locally in this
-        profile's attributes.
-
-        :param info: the ImageInfo object to create the info.json dict for
-        :param iiif_level: the IIIF image server compliance level to include in the info.json
-        :return: the generated or cached info.json dict for the image
-        """
-        # if the image's info.json isn't cached, create and add the complete info.json to the cache
-        if info not in self.info_json_cache:
-            id_url = f'{self.config.base_url}/{info.identifier}'
-            self.info_json_cache[info] = {
-                '@context': 'http://iiif.io/api/image/3/context.json',
-                'id': id_url,
-                # mirador/openseadragon seems to need this to work even though I don't think it's
-                # correct under the IIIF image API v3
-                '@id': id_url,
-                'type': 'ImageService3',
-                'protocol': 'http://iiif.io/api/image',
-                'width': info.width,
-                'height': info.height,
-                'rights': self.rights,
-                'profile': f'level{iiif_level}',
-                'tiles': [
-                    {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
-                    {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
-                    {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
-                ],
-                'sizes': generate_sizes(info.width, info.height, self.config.min_sizes_size),
-                # suggest to clients that upscaling isn't supported
-                'maxWidth': info.width,
-                'maxHeight': info.height,
-            }
-
-        return self.info_json_cache[info]
-
     async def close(self):
         """
         Close down the profile ensuring any resources are released. This will be called before
@@ -186,6 +144,5 @@ class AbstractProfile(abc.ABC):
         """
         status = {
             'name': self.name,
-            'info_json_cache_size': len(self.info_json_cache),
         }
         return status
