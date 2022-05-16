@@ -203,6 +203,15 @@ class TestParseQuality:
             parse_quality('banana')
         assert exc_info.value.status_code == 400
 
+    def test_extras(self):
+        extras = Quality.extras()
+        for quality in Quality:
+            for value in quality.value:
+                if value == 'default':
+                    assert value not in extras
+                else:
+                    assert value in extras
+
 
 class TestParseFormat:
 

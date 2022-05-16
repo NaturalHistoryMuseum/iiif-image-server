@@ -1,7 +1,9 @@
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
 from pathlib import Path
+from typing import List
 
 from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
@@ -198,6 +200,18 @@ class Quality(Enum):
 
     def matches(self, value: str) -> bool:
         return value in self.value
+
+    @staticmethod
+    def extras() -> List[str]:
+        """
+        Returns the values that should be use in the info.json response. This should include
+        eveything except the default value.
+
+        :return: a list of extra qualities available on this IIIF server
+        """
+        return list(chain.from_iterable(
+            quality.value for quality in Quality if quality != Quality.default)
+        )
 
     def __str__(self) -> str:
         return self.value[0]

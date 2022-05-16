@@ -1,9 +1,9 @@
 from fastapi import APIRouter
 from starlette.responses import FileResponse, JSONResponse
 
-from iiif.ops import IIIF_LEVEL, parse_params
+from iiif.ops import IIIF_LEVEL, parse_params, Quality
 from iiif.state import state
-from iiif.utils import get_mimetype
+from iiif.utils import get_mimetype, generate_sizes
 
 router = APIRouter()
 
@@ -22,7 +22,31 @@ async def get_image_info(identifier: str) -> JSONResponse:
     :return: the info.json as a dict
     """
     profile, info = await state.get_profile_and_info(identifier)
-    info_json = await profile.generate_info_json(info, IIIF_LEVEL)
+    id_url = f'{state.config.base_url}/{info.identifier}'
+    info_json = {
+        '@context': 'http://iiif.io/api/image/3/context.json',
+        'id': id_url,
+        # mirador/openseadragon seems to need this to work even though I don't think it's correct
+        # under the IIIF image API v3
+        '@id': id_url,
+        'type': 'ImageService3',
+        'protocol': 'http://iiif.io/api/image',
+        'width': info.width,
+        'height': info.height,
+        'rights': profile.rights,
+        'profile': f'level{IIIF_LEVEL}',
+        'tiles': [
+            {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
+            {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
+            {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
+        ],
+        'sizes': generate_sizes(info.width, info.height, state.config.min_sizes_size),
+        # suggest to clients that upscaling isn't supported
+        'maxWidth': info.width,
+        'maxHeight': info.height,
+        'extraQualities': Quality.extras(),
+        'extraFeatures': ['mirroring'],
+    }
     # add a cache-control header and iiif header
     headers = {
         'cache-control': f'max-age={profile.cache_for}',
