@@ -361,7 +361,11 @@ class FetchCache(abc.ABC):
             elif not path.exists():
                 async with self._locker.acquire(path, timeout=self.fetch_timeout):
                     if not path.exists():
-                        await self._fetch(fetchable)
+                        try:
+                            await self._fetch(fetchable)
+                        except Exception:
+                            self.errors += 1
+                            raise
                         self._sizes[path] = path.stat().st_size
                         self.total_size += self._sizes[path]
 
