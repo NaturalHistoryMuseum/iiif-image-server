@@ -290,7 +290,7 @@ class FetchCache(abc.ABC):
 
         :return: the percentage the cache is in use as a formatted string
         """
-        return f'{(self.total_size / self.max_size):.2f}%'
+        return f'{((self.total_size / self.max_size) * 100):.2f}%'
 
     def _clean_up(self, path: Path):
         """
