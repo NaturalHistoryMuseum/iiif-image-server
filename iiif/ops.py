@@ -221,14 +221,11 @@ def parse_quality(quality: str) -> Quality:
 
 
 class Format(Enum):
-    jpg = ('jpg', 'jpeg')
-    png = ('png',)
-
-    def matches(self, value: str) -> bool:
-        return value in self.value
+    jpg = 'jpg'
+    png = 'png'
 
     def __str__(self) -> str:
-        return self.value[0]
+        return self.value
 
 
 def parse_format(fmt: str) -> Format:
@@ -242,7 +239,7 @@ def parse_format(fmt: str) -> Format:
     :return: a Format
     """
     for option in Format:
-        if option.matches(fmt):
+        if fmt == option.value:
             return option
 
     raise InvalidIIIFParameter('Format', fmt)

@@ -209,9 +209,6 @@ class TestParseFormat:
     def test_level0(self):
         assert parse_format('jpg') == Format.jpg
 
-    def test_level0(self):
-        assert parse_format('jpeg') == Format.jpg
-
     def test_level2_png(self):
         assert parse_format('png') == Format.png
 
