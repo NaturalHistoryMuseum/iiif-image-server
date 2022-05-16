@@ -186,7 +186,7 @@ class TestParseQuality:
     def test_level2_color(self):
         assert parse_quality('color') == Quality.color
 
-    def test_level2_color(self):
+    def test_level2_colour(self):
         assert parse_quality('colour') == Quality.color
 
     def test_level2_gray(self):
