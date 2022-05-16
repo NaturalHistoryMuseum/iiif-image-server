@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 
+from iiif.exceptions import InvalidIIIFParameter
 from iiif.ops import parse_region, Region, parse_size, Size, parse_rotation, Rotation, \
     parse_quality, Quality, parse_format, Format, parse_params, IIIFOps, IIIF_LEVEL
 from iiif.profiles.base import ImageInfo
@@ -61,7 +61,7 @@ class TestParseRegion:
 
     @pytest.mark.parametrize('region', ['', '10,50', '-10,-15', '10,10,0,0'])
     def test_invalid(self, info, region):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InvalidIIIFParameter) as exc_info:
             parse_region(region, info)
         assert exc_info.value.status_code == 400
 
@@ -143,7 +143,7 @@ class TestParseSize:
 
     @pytest.mark.parametrize('size', invalid_scenarios)
     def test_invalid(self, full_region, size):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InvalidIIIFParameter) as exc_info:
             parse_size(size, full_region)
         assert exc_info.value.status_code == 400
 
@@ -168,12 +168,12 @@ class TestParseRotation:
     @pytest.mark.parametrize('angle', [-90, 10, 3, 289, 360, 500, 3600, 'beans'])
     def test_invalid_angles(self, angle: int):
         rotation = str(angle)
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InvalidIIIFParameter) as exc_info:
             parse_rotation(rotation)
         assert exc_info.value.status_code == 400
 
         rotation = f'!{angle}'
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InvalidIIIFParameter) as exc_info:
             parse_rotation(rotation)
         assert exc_info.value.status_code == 400
 
@@ -186,16 +186,31 @@ class TestParseQuality:
     def test_level2_color(self):
         assert parse_quality('color') == Quality.color
 
+    def test_level2_colour(self):
+        assert parse_quality('colour') == Quality.color
+
     def test_level2_gray(self):
         assert parse_quality('gray') == Quality.gray
+
+    def test_level2_grey(self):
+        assert parse_quality('grey') == Quality.gray
 
     def test_bitonal(self):
         assert parse_quality('bitonal') == Quality.bitonal
 
     def test_invalid(self):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InvalidIIIFParameter) as exc_info:
             parse_quality('banana')
         assert exc_info.value.status_code == 400
+
+    def test_extras(self):
+        extras = Quality.extras()
+        for quality in Quality:
+            for value in quality.value:
+                if value == 'default':
+                    assert value not in extras
+                else:
+                    assert value in extras
 
 
 class TestParseFormat:
@@ -208,7 +223,7 @@ class TestParseFormat:
 
     @pytest.mark.parametrize('fmt', ['tif', 'gif', 'pdf', 'jp2', 'webp', 'arms!'])
     def test_other_formats_are_invalid(self, fmt):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(InvalidIIIFParameter) as exc_info:
             parse_format(fmt)
         assert exc_info.value.status_code == 400
 

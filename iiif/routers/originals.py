@@ -1,11 +1,10 @@
-from pathlib import Path
-from typing import Tuple, Iterable
-
 from fastapi import APIRouter
+from pathlib import Path
 from starlette.responses import StreamingResponse
+from typing import Tuple, Iterable
 from zipstream import AioZipStream
 
-from iiif.exceptions import too_many_images
+from iiif.exceptions import TooManyImages
 from iiif.profiles import AbstractProfile
 from iiif.state import state
 from iiif.utils import parse_identifier
@@ -33,8 +32,7 @@ def parse_identifiers(identifiers: str) -> Iterable[Tuple[AbstractProfile, str]]
 
 
 @router.get('/originals')
-async def zip_originals(identifiers: str, stop_on_error: bool = True,
-                        use_original_filenames: bool = True) -> StreamingResponse:
+async def zip_originals(identifiers: str, use_original_filenames: bool = True) -> StreamingResponse:
     """
     Endpoint which streams a zip containing the original versions of the requested images.
     The zip is created on the fly which in theory means it could be unlimited in size, however, to
@@ -46,19 +44,15 @@ async def zip_originals(identifiers: str, stop_on_error: bool = True,
 
     :param identifiers: a comma separated list of identifiers (<profile name>:<name>) and/or just
                         names in which case the default profile is used
-    :param stop_on_error: whether to stop streaming and return an error if there is a problem while
-                          streaming a file (True, the default) or finish the file and continue with
-                          the next file (if the file hasn't started streaming yet then this will
-                          result in an empty file, if the file has started streaming this will
-                          result in a partial file)
     :param use_original_filenames: whether to use the original file names in the zip (True, the
                                    default) or name the files after the image name
     :return: a StreamingResponse object streaming a dynamically generated zip of the requested
              original files
     """
+    chunk_size = state.config.download_chunk_size
     profiles_and_names = list(parse_identifiers(identifiers))
     if len(profiles_and_names) > state.config.download_max_files:
-        raise too_many_images(state.config.download_max_files)
+        raise TooManyImages(state.config.download_max_files)
 
     # aiozipstream can't handle async generators which is a shame :(
     files = []
@@ -69,8 +63,7 @@ async def zip_originals(identifiers: str, stop_on_error: bool = True,
                 filename = f'{name}{Path(filename).suffix.lower()}'
             files.append({
                 'name': filename,
-                'stream': profile.stream_original(name, chunk_size=state.config.download_chunk_size,
-                                                  raise_errors=stop_on_error),
+                'stream': profile.stream_original(name, chunk_size=chunk_size),
                 'compression': 'deflate'
             })
 

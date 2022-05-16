@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
-from copy import deepcopy
-from typing import Callable
-
 import os
 import yaml
 from pathlib import Path
@@ -26,8 +23,9 @@ class Config:
         self.min_sizes_size = options.get('min_sizes_size', 200)
 
         # image processing settings
-        self.image_pool_size = options.get('image_pool_size', 2)
-        self.image_cache_size_per_process = options.get('image_cache_size_per_process', 5)
+        self.processing_pool_size = options.get('processing_pool_size', 2)
+        self.processed_cache_size = options.get('processed_cache_size', 1024 * 1024 * 256)
+        self.processed_cache_ttl = options.get('processed_cache_ttl', 12 * 60 * 60)
 
         # size definitions for the quick access endpoints
         self.thumbnail_width = options.get('thumbnail_width', 512)

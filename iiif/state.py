@@ -1,8 +1,8 @@
 from typing import Tuple, Optional
 
 from iiif.config import load_config, Config
-from iiif.exceptions import profile_not_found, image_not_found
-from iiif.processing import ImageProcessingDispatcher
+from iiif.exceptions import ProfileNotFound, ImageNotFound
+from iiif.processing import ImageProcessor
 from iiif.profiles import load_profiles
 from iiif.profiles.base import AbstractProfile, ImageInfo
 from iiif.utils import parse_identifier
@@ -16,10 +16,9 @@ class State:
     def __init__(self):
         self.config: Config = load_config()
         self.profiles = load_profiles(self.config)
-        # create the dispatcher which controls how image data requests are handled
-        self.dispatcher: ImageProcessingDispatcher = ImageProcessingDispatcher()
-        self.dispatcher.init_workers(self.config.image_pool_size,
-                                     self.config.image_cache_size_per_process)
+        # create the processor which actually does the IIIF image processing
+        self.processor = ImageProcessor(self.config.cache_path, self.config.processed_cache_ttl,
+                                        self.config.processed_cache_size)
 
     def get_profile(self, profile_name: Optional[str] = None) -> AbstractProfile:
         """
@@ -34,7 +33,7 @@ class State:
 
         profile = self.profiles.get(profile_name, None)
         if profile is None:
-            raise profile_not_found()
+            raise ProfileNotFound(profile_name)
         return profile
 
     @staticmethod
@@ -50,7 +49,7 @@ class State:
         """
         info = await profile.get_info(name)
         if info is None:
-            raise image_not_found()
+            raise ImageNotFound(profile.name, name)
         return info
 
     async def get_profile_and_info(self, identifier: str) -> Tuple[AbstractProfile, ImageInfo]:

@@ -1,10 +1,18 @@
-from pathlib import Path
-from typing import Tuple, Optional
-
 import aiofiles
+from contextlib import asynccontextmanager
+from pathlib import Path
 
+from iiif.exceptions import ImageNotFound
 from iiif.profiles.base import AbstractProfile, ImageInfo
 from iiif.utils import get_size
+
+
+class MissingFile(ImageNotFound):
+
+    def __init__(self, profile: str, name: str, source: Path):
+        super().__init__(profile, name,
+                         log=f"Couldn't find the image file for {name} on disk at {source}")
+        self.source = source
 
 
 class OnDiskProfile(AbstractProfile):
@@ -13,72 +21,78 @@ class OnDiskProfile(AbstractProfile):
     an external source.
     """
 
-    async def get_info(self, name: str) -> Optional[ImageInfo]:
+    async def get_info(self, name: str) -> ImageInfo:
         """
         Given an image name, returns an info object for it. If the image doesn't exist on disk then
-        None is returned.
+        an error is raised.
 
         :param name: the image name
-        :return: None if the image doesn't exist on disk, or an ImageInfo instance
+        :return: an ImageInfo instance
+        :raises: MissingFile if the file is missing
         """
         source = self._get_source(name)
-        if not source.exists():
-            return None
-        else:
-            return ImageInfo(self.name, name, *get_size(source))
+        return ImageInfo(self.name, name, *get_size(source))
 
-    async def fetch_source(self, info: ImageInfo,
-                           target_size: Optional[Tuple[int, int]] = None) -> Optional[Path]:
+    @asynccontextmanager
+    async def use_source(self, info: ImageInfo, *args, **kwargs) -> Path:
         """
-        Given an info object returns the path to the on disk image source. The target size is
-        ignored by this function because we only have the full size original and nothing else.
+        Given an info object, yields the path to the on disk image source. The target size is
+        ignored by this function because we only have the full size originals and nothing else.
 
         :param info: the image info object
-        :param target_size: a target size - this is ignored by this function
         :return: the path to the source image on disk
+        :raises: HTTPException if the file is missing
         """
-        source_path = self._get_source(info.name)
-        return source_path if source_path.exists() else None
+        yield self._get_source(info.name)
 
     def _get_source(self, name: str) -> Path:
         """
-        Returns the path to the given name in this profile.
+        Returns the path to the given name in this profile. If the file doesn't exist, raises a
+        MissingFile error.
 
         :param name: the name of the image
         :return: the path to the image
+        :raises: MissingFile exception if the file doesn't exist
         """
-        return self.source_path / name
+        source = self.source_path / name
+        if not source.exists():
+            raise MissingFile(self.name, name, source)
+        return source
 
-    async def resolve_filename(self, name: str) -> Optional[str]:
+    async def resolve_filename(self, name: str) -> str:
         """
-        Given an image name, resolves the filename. Given that the name == the filename, this just
-        checks that the name source exists on disk and returns the name if it does.
+        Given an image name, resolves the filename..
 
         :param name: the image name
         :return: the source filename
+        :raises: MissingFile exception if the file doesn't exist
         """
-        source_path = self._get_source(name)
-        return source_path.name if source_path.exists() else None
+        return self._get_source(name).name
 
-    async def stream_original(self, name: str, chunk_size: int = 4096, raise_errors=True):
+    async def resolve_original_size(self, name: str) -> int:
+        """
+        Given an image, returns the size of the source image.
+
+        :param name: the image name
+        :return: the size of the source file in bytes
+        :raises: MissingFile exception if the file doesn't exist
+        """
+        return self._get_source(name).stat().st_size
+
+    async def stream_original(self, name: str, chunk_size: int = 4096):
         """
         Streams the source file for the given image name from disk to the requester. This function
         uses aiofiles to avoid locking up the server.
 
         :param name: the image name
         :param chunk_size: the size in bytes of each chunk
-        :param raise_errors: whether to raise errors if they occur, or just stop (default: True)
         :return: yields chunks of bytes
+        :raises: MissingFile exception if the file doesn't exist
         """
-        source_path = self._get_source(name)
-        if source_path.exists():
-            try:
-                async with aiofiles.open(file=str(source_path), mode='rb') as f:
-                    while True:
-                        chunk = await f.read(chunk_size)
-                        if not chunk:
-                            break
-                        yield chunk
-            except Exception as e:
-                if raise_errors:
-                    raise e
+        source = self._get_source(name)
+        async with aiofiles.open(file=str(source), mode='rb') as f:
+            while True:
+                chunk = await f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk

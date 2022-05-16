@@ -1,13 +1,14 @@
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
+from itertools import chain
 from pathlib import Path
+from typing import List
 
-from contextlib import suppress
-
-from iiif.exceptions import invalid_iiif_parameter
+from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
 
-# this server currently supports IIIF level1
+# this server currently supports IIIF level2
 IIIF_LEVEL = 2
 
 
@@ -81,7 +82,7 @@ def parse_region(region: str, info: ImageInfo) -> Region:
                 return Region(x, y, w, h, full=(w == info.width and h == info.height))
 
     # if we get here, the region is no good :(
-    raise invalid_iiif_parameter('Region', region)
+    raise InvalidIIIFParameter('Region', region)
 
 
 @dataclass
@@ -147,14 +148,13 @@ def parse_size(size: str, region: Region) -> Size:
         if 0 < w <= region.w and 0 < h <= region.h:
             return Size(w, h, max=(w == region.w and h == region.h))
 
-    raise invalid_iiif_parameter('Size', size)
+    raise InvalidIIIFParameter('Size', size)
 
 
 @dataclass
 class Rotation:
-    # jpegtran only supports rotating in 90 degree increments and IIIF suggests only supporting
-    # rotating by 90 unless the png format is supported so that the background can be made
-    # transparent
+    # IIIF suggests only supporting rotating by 90 unless the png format is supported so that the
+    # background can be made transparent
     angle: int
     mirror: bool = False
 
@@ -189,14 +189,32 @@ def parse_rotation(rotation: str) -> Rotation:
         if angle in allowed_angles:
             return Rotation(angle, mirror)
 
-    raise invalid_iiif_parameter('Rotation', rotation)
+    raise InvalidIIIFParameter('Rotation', rotation)
 
 
 class Quality(Enum):
-    default = 'default'
-    color = 'color'
-    gray = 'gray'
-    bitonal = 'bitonal'
+    default = ('default',)
+    color = ('color', 'colour')
+    gray = ('gray', 'grey')
+    bitonal = ('bitonal',)
+
+    def matches(self, value: str) -> bool:
+        return value in self.value
+
+    @staticmethod
+    def extras() -> List[str]:
+        """
+        Returns the values that should be use in the info.json response. This should include
+        eveything except the default value.
+
+        :return: a list of extra qualities available on this IIIF server
+        """
+        return list(chain.from_iterable(
+            quality.value for quality in Quality if quality != Quality.default)
+        )
+
+    def __str__(self) -> str:
+        return self.value[0]
 
 
 def parse_quality(quality: str) -> Quality:
@@ -210,15 +228,18 @@ def parse_quality(quality: str) -> Quality:
     :return: a Quality
     """
     for option in Quality:
-        if option.value == quality:
+        if option.matches(quality):
             return option
 
-    raise invalid_iiif_parameter('Quality', quality)
+    raise InvalidIIIFParameter('Quality', quality)
 
 
 class Format(Enum):
     jpg = 'jpg'
     png = 'png'
+
+    def __str__(self) -> str:
+        return self.value
 
 
 def parse_format(fmt: str) -> Format:
@@ -232,10 +253,10 @@ def parse_format(fmt: str) -> Format:
     :return: a Format
     """
     for option in Format:
-        if option.value == fmt:
+        if fmt == option.value:
             return option
 
-    raise invalid_iiif_parameter('Format', fmt)
+    raise InvalidIIIFParameter('Format', fmt)
 
 
 def parse_params(info: ImageInfo, region: str = 'full', size: str = 'max', rotation: str = '0',
@@ -276,4 +297,4 @@ class IIIFOps:
         :return: the path where the image produced by this set of ops should be stored.
         """
         return Path(str(self.region), str(self.size), str(self.rotation),
-                    f'{self.quality.value}.{self.format.value}')
+                    f'{self.quality}.{self.format}')

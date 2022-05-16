@@ -1,42 +1,19 @@
 #!/usr/bin/env python3
 # encoding: utf-8
+from concurrent.futures import ProcessPoolExecutor
 
 import asyncio
-from asyncio import Future
-from collections import defaultdict
-from multiprocessing.context import Process
-from pathlib import Path
-from typing import Any, Optional
-
-import multiprocessing as mp
-import random
-from cachetools import LRUCache
+import os
+from PIL import ImageOps
+from dataclasses import dataclass
 from jpegtran import JPEGImage
 from jpegtran.lib import Transformation
-from threading import Thread
+from pathlib import Path
+from typing import Optional, Tuple
 
 from iiif.ops import IIIFOps, Region, Size, Rotation, Quality, Format
-from iiif.utils import to_pillow, to_jpegtran
-
-
-class Task:
-    """
-    Class representing an image processing task as defined by a IIIF based request.
-    """
-
-    def __init__(self, source_path: Path, output_path: Path, ops: IIIFOps):
-        """
-        :param region: the IIIF region request parameter
-        :param size: the IIIF size request parameter
-        """
-        self.source_path = source_path
-        self.output_path = output_path
-        self.ops = ops
-
-    def __eq__(self, other):
-        if isinstance(other, Task):
-            return self.source_path == other.source_path and self.ops == other.ops
-        return NotImplemented
+from iiif.profiles.base import ImageInfo, AbstractProfile
+from iiif.utils import to_pillow, to_jpegtran, FetchCache, Fetchable
 
 
 def process_region(image: JPEGImage, region: Region) -> JPEGImage:
@@ -89,19 +66,20 @@ def process_size(image: JPEGImage, size: Size) -> JPEGImage:
 
 def process_rotation(image: JPEGImage, rotation: Rotation) -> JPEGImage:
     """
-    Processes a IIIF rotation parameter which can involve mirroring and/or rotating.
+    Processes a IIIF rotation parameter which can involve mirroring and/or rotating. We could do
+    this in jpegtran but only if the width and height were divisible by 16 so we'll just do it in
+    pillow for ease.
 
     :param image: a jpegtran JPEGImage object
     :param rotation: the IIIF rotate parameter
     :return: a jpegtran JPEGImage object
     """
+    pillow_image = to_pillow(image)
     if rotation.mirror:
-        image = image.flip('horizontal')
+        pillow_image = ImageOps.mirror(pillow_image)
     if rotation.angle > 0:
-        # note that jpegtran can only do 90 degree rotations, if we want to support arbitrary
-        # rotation we'll have to use pillow/pywand
-        image = image.rotate(rotation.angle)
-    return image
+        pillow_image = pillow_image.rotate(-rotation.angle, expand=True)
+    return to_jpegtran(pillow_image)
 
 
 def process_quality(image: JPEGImage, quality: Quality) -> JPEGImage:
@@ -141,266 +119,122 @@ def process_format(image: JPEGImage, fmt: Format, output_path: Path):
             to_pillow(image).save(f, format='png')
 
 
-def process_image_requests(worker_id: Any, task_queue: mp.Queue, result_queue: mp.Queue,
-                           cache_size: int):
+def process_image_request(source_path: Path, output_path: Path, ops: IIIFOps):
     """
-    Processes a given task queue, putting tasks on the given results queue once complete. This
-    function is blocking and should be run in a separate process.
+    Process a single image at the source path using the given ops and save it in the output path.
 
-    Due to the way JPEGImage handles file data we use the LRU cache to avoid rereading source files
-    if possible. When initialised, JPEGImage loads the entire source file into memory but is then
-    immutable when using the various operation functions (crop, downscale etc). This means it's most
-    efficient for us to load the file once and reuse the JPEGImage object over and over again, hence
-    the LRU image cache.
-
-    :param worker_id: the worker id associated with this process
-    :param task_queue: a multiprocessing Queue of Task objects
-    :param result_queue: a multiprocessing Queue to put the completed Task objects on
-    :param cache_size: the size to use for the LRU cache for loaded source images
+    :param source_path: the source image
+    :param output_path: the target location
+    :param ops: the IIIF operations to perform
     """
-    image_cache = LRUCache(cache_size)
+    image = JPEGImage(str(source_path))
 
-    try:
-        # wait for tasks until we get a sentinel (in this case None)
-        for task in iter(task_queue.get, None):
-            try:
-                if task.source_path not in image_cache:
-                    # the JPEGImage init function reads the entire source file into memory
-                    image_cache[task.source_path] = JPEGImage(task.source_path)
+    image = process_region(image, ops.region)
+    image = process_size(image, ops.size)
+    image = process_rotation(image, ops.rotation)
+    image = process_quality(image, ops.quality)
 
-                image = image_cache[task.source_path]
-                image = process_region(image, task.ops.region)
-                image = process_size(image, task.ops.size)
-                image = process_rotation(image, task.ops.rotation)
-                image = process_quality(image, task.ops.quality)
+    # ensure the full cache path exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # ensure the full cache path exists
-                task.output_path.parent.mkdir(parents=True, exist_ok=True)
-
-                # write the processed image to disk
-                process_format(image, task.ops.format, task.output_path)
-
-                # put our worker id, the task and None on the result queue to indicate to the main
-                # process that it's done and we encountered no exceptions
-                result_queue.put((worker_id, task, None))
-            except Exception as e:
-                # if we get a keyboard interrupt we need to stop!
-                if isinstance(e, KeyboardInterrupt):
-                    raise e
-                # put our worker id, the task and the exception on the result queue to indicate to
-                # the main process that it's done and we encountered an exception
-                result_queue.put((worker_id, task, e))
-    except KeyboardInterrupt:
-        pass
+    # write the processed image to disk
+    process_format(image, ops.format, output_path)
 
 
-class Worker:
+@dataclass
+class ImageProcessorTask(Fetchable):
     """
-    Class representing an image processing worker process.
+    Class used to manage the ImageProcessor tasks.
     """
+    profile: AbstractProfile
+    info: ImageInfo
+    ops: IIIFOps
 
-    def __init__(self, worker_id: Any, result_queue: mp.Queue, cache_size: int):
+    @property
+    def public_name(self) -> str:
+        return self.info.identifier
+
+    @property
+    def store_path(self) -> Path:
+        return self.profile.cache_path / self.info.name / self.ops.location
+
+    @property
+    def size_hint(self) -> Optional[Tuple[int, int]]:
         """
-        :param worker_id: the worker's id, handy for debugging and not really used otherwise
-        :param result_queue: the multiprocessing Queue that should be used by the worker to indicate
-                             task completions
-        :param cache_size: the requested size of the worker's image cache
+        This is used as a performance enhancement. By providing a hint at the size of the image we
+        need to serve up, we can (sometimes!) use a smaller source image thus reducing downloading,
+        storage, and processing time.
+
+        :return: the hint size as a tuple or None if we can't hint at anything
         """
-        self.worker_id = worker_id
-        self.name = str(worker_id)
-
-        # create a multiprocessing Queue for just this worker's tasks
-        self.task_queue = mp.Queue()
-        # create the process
-        self.process = Process(target=process_image_requests, args=(worker_id, self.task_queue,
-                                                                    result_queue, cache_size))
-        self.queue_size = 0
-        # this LRU cache holds the source file paths that should be in the process's image cache at
-        # the time the last task on the task queue is processed and therefore allows us to use it as
-        # a heuristic when determining which worker to assign a task (we want to hit the image cache
-        # as much as possible!)
-        self.predicted_cache = LRUCache(cache_size)
-        self.process.start()
-
-    def add(self, task: Task):
-        """
-        Adds the given task to this worker's task queue.
-
-        :param task: the Task object
-        """
-        self.queue_size += 1
-        self.predicted_cache[task.source_path] = True
-        # this will almost always be instantaneous but does have the chance to block up the entire
-        # asyncio thread
-        self.task_queue.put(task)
-
-    def done(self, task: Task):
-        """
-        Call this to notify this worker that it completed the given task.
-
-        :param task: the task that was completed
-        """
-        self.queue_size -= 1
-
-    def stop(self):
-        """
-        Requests that this worker stops. This is a blocking call and will wait until the worker has
-        completed all currently queued tasks.
-        """
-        # send the sentinel
-        self.task_queue.put(None)
-        self.process.join()
-
-    def is_warm_for(self, task: Task) -> bool:
-        """
-        Determines whether the worker is warmed up for a given task. This just checks to see whether
-        the source image will be in the worker's LRU cache when it is processed if it is added to
-        the queue now.
-
-        :param task: the task
-        :return: True if the source path is warm on this worker or False if not
-        """
-        return task.source_path in self.predicted_cache
-
-
-class ImageProcessingDispatcher:
-    """
-    Class controlling the image processing workers.
-    """
-
-    def __init__(self):
-        # keep a reference to the correct asyncio loop so that we can correctly call task completion
-        # callbacks from the result thread
-        self.loop = asyncio.get_event_loop()
-        # a dict of the Worker objects we're dispatching the requests to keyed by their worker ids
-        self.workers = {}
-        # a register of the processed image paths and tornado Event objects indicating whether they
-        # have been processed yet, we deliberately don't pre-populate this in case the cache
-        # directory is large and leave it to be lazily built as requests come in (see submit method)
-        self.output_paths = {}
-        # the multiprocessing result queue used by all workers to notify the main process that a
-        # task has been completed
-        self.result_queue = mp.Queue()
-        self.result_thread = Thread(target=self.result_listener)
-        self.result_thread.start()
-
-    def result_listener(self):
-        """
-        This function should be run in a separate thread to avoid blocking the asyncio loop. It
-        listens for results to be put on the result queue by workers and adds a callback into the
-        main ayncio loop to notify all waiting coroutines.
-        """
-        for result in iter(self.result_queue.get, None):
-            self.loop.call_soon_threadsafe(self.finish_task, *result)
-
-    def init_workers(self, worker_count: int, worker_cache_size: int):
-        """
-        Initialises the required number of workers.
-
-        :param worker_count: the number of workers to create
-        :param worker_cache_size: the size of each worker's image cache
-        """
-        for i in range(worker_count):
-            self.workers[i] = Worker(i, self.result_queue, worker_cache_size)
-
-    async def submit(self, task: Task):
-        """
-        Submits the given task to be processed on one of our worker processes. If the task has
-        already been completed (this is determined by the existence of the task's output path) then
-        the task will not be reprocessed. Tornado Future objects are used to determine if a task has
-        been completed or not. If the task has already been completed, this function will return
-        immediately when awaited. If a task is requested again whilst it is already being processed,
-        the Future object created for the in progress task will be awaited on by this function for
-        the new processing request. This results in all tasks resolving at the same time upon the
-        first task's completion.
-
-        :param task: the task object
-        """
-        if task.output_path not in self.output_paths:
-            # we haven't processed this task before, create a Future and add it to the output_paths
-            processed_future = Future()
-            self.output_paths[task.output_path] = processed_future
-            if task.output_path.exists():
-                # if the path exists the task was created before this server started up, set the
-                # result to indicate the task is complete
-                processed_future.set_result(None)
-            else:
-                # otherwise, choose a worker and add it to it
-                worker = self.choose_worker(task)
-                worker.add(task)
-
-        await self.output_paths[task.output_path]
-
-    def choose_worker(self, task: Task) -> Worker:
-        """
-        Select a worker for the given task. Workers are chosen by giving them a score and then
-        randomly choosing the worker from the group with highest score.
-
-        Workers which will have the source image loaded into their image caches are prioritised as
-        are workers with a queue size shorter than the number of workers (for lack of a better value
-        to be less than).
-
-        :param task: the task
-        :return: a Worker object
-        """
-        buckets = defaultdict(list)
-        for worker in self.workers.values():
-            # higher is better
-            score = 0
-
-            if worker.queue_size <= len(self.workers):
-                # you get a point if your queue is smaller than the current number of workers
-                score += 1
-                if worker.queue_size == 0:
-                    # and an extra point if you have no tasks on your queue
-                    score += 1
-
-            if worker.is_warm_for(task):
-                # you get a point if you are warmed up for the task
-                score += 1
-
-            # add the worker to the appropriate bucket
-            buckets[score].append(worker)
-
-        # choose the bucket with the highest score and pick a worker at random from it
-        return random.choice(buckets[max(buckets.keys())])
-
-    def finish_task(self, worker_id: Any, task: Task, exception: Optional[Exception]):
-        """
-        Called by the result thread to signal that a task has finished processing. This function
-        simply retrieves the the Future object associated with the task's output path and sets its
-        result/exception.
-
-        :param worker_id: the id of the worker that completed the task
-        :param task: the task object that is complete
-        :param exception: an exception that occurred during processing, if no exception was
-                          encountered this will be None
-        """
-        self.workers[worker_id].done(task)
-        if exception is None:
-            self.output_paths[task.output_path].set_result(None)
+        # this is a performance enhancement.
+        if self.ops.region.full:
+            # the full image region is selected so we can take the hint from the size parameter
+            return self.ops.size.w, self.ops.size.h
         else:
-            self.output_paths[task.output_path].set_exception(exception)
+            # a region has been specified, we'll have to use the whole thing
+            # TODO: can we do better than this?
+            return None
+
+
+class ImageProcessor(FetchCache):
+    """
+    Class controlling IIIF image processing.
+    """
+
+    def __init__(self, root: Path, ttl: float, max_size: float, max_workers: int = os.cpu_count()):
+        """
+        :param root: the root path to cache the processed images in
+        :param ttl: how long processed images should exist on disk after they've been last used
+        :param max_size: maximum bytes to store in this cache
+        :param max_workers: maximum number of worker processes to use to work on processing images
+        """
+        super().__init__(root, ttl, max_size)
+        self.max_workers = max_workers
+        self.executor = ProcessPoolExecutor(max_workers=max_workers)
+
+    async def process(self, profile: AbstractProfile, info: ImageInfo, ops: IIIFOps) -> Path:
+        """
+        Process an image according to the IIIF ops.
+
+        Technically, the path returned could become invalid immediately as this is not a context
+        manager and therefore doesn't guarantee that another coroutine wouldn't delete it, but
+        realistically this would only happen if the amount of time it takes you to do whatever you
+        need to do with the file exceeds the ttl of the file.
+
+        If you need to ensure the file exists, use the `use` function as a context manager instead.
+
+        :param profile: the profile
+        :param info: the image info
+        :param ops: IIIF ops to perform
+        :return: the path of the processed image
+        """
+        async with self.use(ImageProcessorTask(profile, info, ops)) as path:
+            return path
+
+    async def _fetch(self, task: ImageProcessorTask):
+        """
+        Perform the actual processing to produce the derived image.
+
+        :param task: the task information
+        """
+        loop = asyncio.get_event_loop()
+        async with task.profile.use_source(task.info, task.size_hint) as source_path:
+            await loop.run_in_executor(self.executor, process_image_request, source_path,
+                                       task.store_path, task.ops)
 
     def stop(self):
         """
-        Signals all worker processes to stop. This function will block until all workers have
-        finished processing their queues.
+        Shuts down the processing pool. This will block until they're all done.
         """
-        for worker in self.workers.values():
-            worker.stop()
-        self.result_queue.put(None)
-        self.result_thread.join()
+        self.executor.shutdown()
 
-    def get_status(self) -> dict:
+    async def get_status(self) -> dict:
         """
         Returns some basic stats info as a dict.
 
         :return: a dict of stats
         """
-        return {
-            'results_queue_size': self.result_queue.qsize(),
-            'worker_queue_sizes': {
-                worker.name: worker.queue_size for worker in self.workers.values()
-            }
-        }
+        status = await super().get_status()
+        status['pool_size'] = self.max_workers
+        return status

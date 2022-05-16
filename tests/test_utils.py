@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-
 import asyncio
-from collections import Counter, defaultdict
-from unittest.mock import patch, MagicMock
-
-import humanize
 import pytest
 from PIL import Image
+from dataclasses import dataclass
 from jpegtran import JPEGImage
+from pathlib import Path
+from unittest.mock import patch, MagicMock
 from wand.exceptions import MissingDelegateError
 
-from iiif.utils import convert_image, generate_sizes, get_size, get_path_stats, OnceRunner, \
-    get_mimetype, parse_identifier, to_pillow, to_jpegtran
-from tests.utils import create_image
+from iiif.utils import convert_image, generate_sizes, get_size, get_mimetype, parse_identifier, \
+    to_pillow, to_jpegtran, Locker, FetchCache, Fetchable
+from tests.utils import create_image, create_file
 
 
 class TestConvertImage:
@@ -135,222 +133,6 @@ mss_base_url_scenarios = [
 ]
 
 
-def test_get_path_stats(tmp_path):
-    total = 0
-    count = 0
-    for i in range(10):
-        with (tmp_path / f'{i}.text').open('w') as f:
-            total += f.write('beans!')
-            count += 1
-        (tmp_path / f'{i}').mkdir()
-        with (tmp_path / f'{i}' / f'{i}.text').open('w') as f:
-            total += f.write('beans again!')
-            count += 1
-
-    stats = get_path_stats(tmp_path)
-    assert stats['count'] == count
-    assert stats['size_bytes'] == total
-    assert stats['size_pretty'] == humanize.naturalsize(total, binary=True)
-
-
-def test_get_path_stats_empty(tmp_path):
-    stats = get_path_stats(tmp_path / 'empty')
-    assert stats['count'] == 0
-    assert stats['size_bytes'] == 0
-    assert stats['size_pretty'] == humanize.naturalsize(0, binary=True)
-
-
-class TestOnceRunner:
-
-    @pytest.mark.asyncio
-    async def test_sequential_usage(self):
-        result = object()
-        counter = Counter()
-
-        async def task(name):
-            counter[name] += 1
-            await asyncio.sleep(1)
-            return result
-
-        runner = OnceRunner('test', 100)
-        assert await runner.run('task1', task, 'task1') is result
-        assert await runner.run('task1', task, 'task1') is result
-        assert await runner.run('task2', task, 'task2') is result
-        assert counter['task1'] == 1
-        assert counter['task2'] == 1
-
-    @pytest.mark.asyncio
-    async def test_parallel_usage(self):
-        results = defaultdict(object)
-        counter = Counter()
-
-        async def task(name):
-            counter[name] += 1
-            await asyncio.sleep(1)
-            return name, results[name]
-
-        runner = OnceRunner('test', 100)
-        task_a = asyncio.create_task(runner.run('task1', task, 'task1'))
-        task_b = asyncio.create_task(runner.run('task2', task, 'task2'))
-        task_c = asyncio.create_task(runner.run('task1', task, 'task1'))
-
-        run_results = await asyncio.gather(task_a, task_b, task_c)
-        assert set(run_results) == set(results.items())
-        assert counter['task1'] == 1
-        assert counter['task2'] == 1
-
-    @pytest.mark.asyncio
-    async def test_sequential_usage_with_error(self):
-        counter = Counter()
-
-        async def task(name):
-            counter[name] += 1
-            await asyncio.sleep(1)
-            raise Exception(f'heyo from {name}!')
-
-        runner = OnceRunner('test', 100)
-        with pytest.raises(Exception, match=f'heyo from task1!') as exc_info:
-            await runner.run('task1', task, 'task1')
-        exception = exc_info.value
-
-        with pytest.raises(Exception, match=f'heyo from task1!') as exc_info:
-            await runner.run('task1', task, 'task1')
-        assert exception is exc_info.value
-
-        with pytest.raises(Exception, match=f'heyo from task2!') as exc_info:
-            await runner.run('task2', task, 'task2')
-
-        assert counter['task1'] == 1
-        assert counter['task2'] == 1
-
-    @pytest.mark.asyncio
-    async def test_parallel_usage_with_errors(self):
-        counter = Counter()
-
-        async def task(name):
-            counter[name] += 1
-            await asyncio.sleep(1)
-            raise Exception(f'heyo from {name}!')
-
-        runner = OnceRunner('test', 100)
-        task_a = asyncio.create_task(runner.run('task1', task, 'task1'))
-        task_b = asyncio.create_task(runner.run('task2', task, 'task2'))
-        task_c = asyncio.create_task(runner.run('task1', task, 'task1'))
-
-        run_results = await asyncio.gather(task_a, task_b, task_c, return_exceptions=True)
-        assert len(run_results) == 3
-        exceptions = set(run_results)
-        assert len(exceptions) == 2
-        assert 'heyo from task1!' in set(map(str, exceptions))
-        assert 'heyo from task2!' in set(map(str, exceptions))
-        assert counter['task1'] == 1
-        assert counter['task2'] == 1
-
-    @pytest.mark.asyncio
-    async def test_parallel_mixed(self):
-        results = defaultdict(object)
-        counter = Counter()
-
-        async def erroring_task(name):
-            counter[name] += 1
-            await asyncio.sleep(1)
-            raise Exception(f'heyo from {name}!')
-
-        async def working_task(name):
-            counter[name] += 1
-            await asyncio.sleep(1.5)
-            return name, results[name]
-
-        runner = OnceRunner('test', 100)
-        task_a = asyncio.create_task(runner.run('task1', erroring_task, 'task1'))
-        task_b = asyncio.create_task(runner.run('task2', working_task, 'task2'))
-        task_c = asyncio.create_task(runner.run('task1', erroring_task, 'task1'))
-        task_d = asyncio.create_task(runner.run('task2', working_task, 'task2'))
-        task_e = asyncio.create_task(runner.run('task3', working_task, 'task3'))
-
-        all_results = await asyncio.gather(task_a, task_b, task_c, task_d, task_e,
-                                           return_exceptions=True)
-        assert len(all_results) == 5
-
-        exceptions = [result for result in all_results if isinstance(result, Exception)]
-        working = [result for result in all_results if not isinstance(result, Exception)]
-
-        assert len(exceptions) == 2
-        assert len(set(exceptions)) == 1
-        assert len(working) == 3
-        assert len(set(working)) == 2
-
-        assert 'heyo from task1!' in set(map(str, exceptions))
-        assert set(working) == set(results.items())
-        assert counter['task1'] == 1
-        assert counter['task2'] == 1
-        assert counter['task3'] == 1
-
-    @pytest.mark.asyncio
-    async def test_expire(self):
-        runner = OnceRunner('test', 100)
-        assert not runner.expire('task1')
-        await runner.run('task1', asyncio.sleep, 1)
-        assert runner.expire('task1')
-
-    @pytest.mark.asyncio
-    async def test_exception_timeout(self):
-        counter = Counter()
-
-        async def erroring_task(name):
-            counter[name] += 1
-            await asyncio.sleep(0.5)
-            raise Exception(f'heyo!')
-
-        runner = OnceRunner('test', 100, exception_timeout=5)
-        # run the erroring task, this should raise an exception
-        with pytest.raises(Exception, match='heyo!'):
-            await runner.run('task1', erroring_task, 'task1')
-        # run the erroring task again, this should also raise an exception but from the result cache
-        with pytest.raises(Exception, match='heyo!'):
-            await runner.run('task1', erroring_task, 'task1')
-        # sleep for 5 seconds to make sure the exception timeout has run out
-        await asyncio.sleep(5)
-        # run the erroring task, this should raise an exception again, not from the cache
-        with pytest.raises(Exception, match='heyo!'):
-            await runner.run('task1', erroring_task, 'task1')
-
-        # the counter is 2 because the task was run twice due to the exception timeout
-        assert counter['task1'] == 2
-
-    def test_wait(self):
-        runner = OnceRunner('test', 100)
-        assert runner.waiting == 0
-        with runner.wait():
-            assert runner.waiting == 1
-        assert runner.waiting == 0
-
-    def test_work(self):
-        runner = OnceRunner('test', 100)
-        assert runner.working == 0
-        with runner.work():
-            assert runner.working == 1
-        assert runner.working == 0
-
-    @pytest.mark.asyncio
-    async def test_get_status(self):
-        runner = OnceRunner('test', 100)
-        stats = await runner.get_status()
-        assert stats['size'] == 0
-        assert stats['waiting'] == 0
-        assert stats['working'] == 0
-
-        with runner.wait():
-            with runner.work():
-                stats = await runner.get_status()
-                assert stats['waiting'] == 1
-                assert stats['working'] == 1
-
-        await runner.run('task1', asyncio.sleep, 1)
-        stats = await runner.get_status()
-        assert stats['size'] == 1
-
-
 class TestGetMimetype:
 
     def test_normal(self):
@@ -371,3 +153,126 @@ def test_to_pillow_and_to_jpegtran():
     assert isinstance(jpegtran_image, JPEGImage)
     pillow_image_again = to_pillow(jpegtran_image)
     assert isinstance(pillow_image_again, Image.Image)
+
+
+@dataclass
+class FetchableForTesting(Fetchable):
+
+    def __init__(self, size: int):
+        self.size = size
+        self.name = f'{self.size}bytes.bin'
+
+    @property
+    def public_name(self) -> str:
+        return self.name
+
+    @property
+    def store_path(self) -> Path:
+        return Path('test', self.name)
+
+
+class FetchCacheForTesting(FetchCache):
+
+    def __init__(self, root: Path, ttl: float = 1, max_size: float = 20):
+        super().__init__(Path(root), ttl, max_size)
+
+    async def _fetch(self, fetchable: FetchableForTesting):
+        path = self.root / fetchable.store_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        create_file(path, fetchable.size)
+
+
+@pytest.fixture
+def cache(tmpdir: Path) -> FetchCacheForTesting:
+    return FetchCacheForTesting(tmpdir)
+
+
+class TestFetchCache:
+
+    async def test_simple_usage(self, cache: FetchCacheForTesting):
+        fetchable = FetchableForTesting(4)
+        async with cache.use(fetchable) as path:
+            assert cache.total_size == 4
+            assert cache.errors == 0
+            assert cache.requests == 1
+            assert cache.completed == 0
+            assert path.exists()
+            assert fetchable.store_path in cache
+            await asyncio.sleep(cache.ttl + 0.5)
+            assert path.exists()
+            assert fetchable.store_path in cache
+        assert cache.completed == 1
+        await asyncio.sleep(cache.ttl + 0.5)
+        assert not path.exists()
+        assert fetchable.store_path not in cache
+        assert not path.parent.exists()
+
+
+class TestLocker:
+
+    async def test_is_locked(self):
+        locker = Locker()
+        async with locker.acquire('test'):
+            assert locker.is_locked('test')
+
+    async def test_acquire_no_timeout(self):
+        locker = Locker()
+
+        async def first():
+            async with locker.acquire('test'):
+                await asyncio.sleep(3)
+
+        async def second():
+            try:
+                async with locker.acquire('test', timeout=0):
+                    assert True
+            except asyncio.TimeoutError:
+                assert False
+
+        task = asyncio.ensure_future(first())
+        await asyncio.sleep(1)
+        await second()
+        await task
+        assert not locker.is_locked('test')
+
+    async def test_acquire_with_shorter_timeout(self):
+        locker = Locker()
+
+        async def first():
+            async with locker.acquire('test'):
+                await asyncio.sleep(5)
+
+        async def second():
+            try:
+                async with locker.acquire('test', timeout=1):
+                    # should never get here because we wait for the lock and then get cancelled
+                    # before it's available
+                    assert False
+            except asyncio.TimeoutError:
+                assert locker.is_locked('test')
+
+        task = asyncio.ensure_future(first())
+        await asyncio.sleep(1)
+        await second()
+        await task
+        assert not locker.is_locked('test')
+
+    async def test_acquire_with_longer_timeout(self):
+        locker = Locker()
+
+        async def first():
+            async with locker.acquire('test'):
+                await asyncio.sleep(3)
+
+        async def second():
+            try:
+                async with locker.acquire('test', timeout=5):
+                    assert True
+            except asyncio.TimeoutError:
+                assert False
+
+        task = asyncio.ensure_future(first())
+        await asyncio.sleep(1)
+        await second()
+        await task
+        assert not locker.is_locked('test')
