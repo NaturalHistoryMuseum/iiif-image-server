@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 import tempfile
+import time
 from aiohttp import ClientResponse, ClientError
 from cachetools import TTLCache
 from contextlib import asynccontextmanager
@@ -336,6 +337,7 @@ class MSSProfile(AbstractProfile):
     async def get_status(self) -> dict:
         status = await super().get_status()
         status['source_cache'] = await self.store.get_status()
+        status['es'] = await self.es_handler.get_status()
         return status
 
 
@@ -370,6 +372,22 @@ class MSSElasticsearchHandler:
             total = result['hits']['total']
             first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
             return total, first_doc
+
+    async def get_status(self) -> dict:
+        """
+        Returns a dict describing the Elasticsearch cluster health.
+
+        :return: a dict of status info
+        """
+        health_url = f'{next(self.es_hosts)}/_cluster/health'
+        start_time = time.monotonic()
+        async with self.es_session.get(health_url) as response:
+            return {
+                'status': {
+                    'status': (await response.json())['status'],
+                    'response_time': time.monotonic() - start_time
+                }
+            }
 
     async def close(self):
         await self.es_session.close()
@@ -563,6 +581,22 @@ class MSSSourceStore(FetchCache):
         """
         async with self.mss_session.get(MSSSourceFile.check_url(emu_irn)) as response:
             return response.ok
+
+    async def get_status(self) -> dict:
+        """
+        Add an MSS specific status to the basic stats returned by the FetchCache super
+        implementation.
+
+        :return: a dict of status information
+        """
+        status = await super().get_status()
+        start_time = time.monotonic()
+        async with self.mss_session.get('/nhmlive/status') as response:
+            status['mss_status'] = {
+                **(await response.json()),
+                'response_time': time.monotonic() - start_time
+            }
+        return status
 
     async def close(self):
         """
