@@ -10,8 +10,6 @@ from queue import Queue
 from typing import Union
 
 from iiif.ops import Region, Size, Rotation, Quality, Format
-from iiif.processing import process_region, process_size, process_rotation, process_quality, \
-    process_format
 from iiif.profiles.base import ImageInfo
 from iiif.utils import to_jpegtran, to_pillow
 from tests.utils import create_image
@@ -66,16 +64,18 @@ class TestProcessRegion:
 
     def test_full(self, image: JPEGImage):
         region = Region(0, 0, DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT, full=True)
-        assert process_region(image, region) is image
+        assert region.process(image) is image
 
     def test_fast(self, image: JPEGImage):
-        result = process_region(image, Region(16, 32, 400, 300))
+        region = Region(16, 32, 400, 300)
+        result = region.process(image)
         assert result.width == 400
         assert result.height == 300
         assert_same(result, image.crop(16, 32, 400, 300))
 
     def test_slow(self, image: JPEGImage):
-        result = process_region(image, Region(14, 37, 400, 300))
+        region = Region(14, 37, 400, 300)
+        result = region.process(image)
         assert result.width == 400
         assert result.height == 300
         assert_same(result, to_pillow(image).crop((14, 37, 414, 337)))
@@ -85,49 +85,53 @@ class TestProcessSize:
 
     def test_max(self, image: JPEGImage):
         size = Size(DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT, max=True)
-        assert process_size(image, size) is image
+        assert size.process(image) is image
 
     def test_down(self, image: JPEGImage):
-        result = process_size(image, Size(500, 600))
+        size = Size(500, 600)
+        result = size.process(image)
         assert_same(result, image.downscale(500, 600))
 
 
 class TestProcessRotation:
 
     def test_rotate(self, image: JPEGImage):
-        result = process_rotation(image, Rotation(90))
+        rotation = Rotation(90)
+        result = rotation.process(image)
         assert_same(result, to_pillow(image).rotate(-90, expand=True))
 
     def test_mirror(self, image: JPEGImage):
-        result = process_rotation(image, Rotation(0, mirror=True))
+        rotation = Rotation(0, mirror=True)
+        result = rotation.process(image)
         assert_same(result, image.flip('horizontal'))
 
     def test_rotate_and_mirror(self, image: JPEGImage):
-        result = process_rotation(image, Rotation(90, mirror=True))
+        rotation = Rotation(90, mirror=True)
+        result = rotation.process(image)
         assert_same(result, ImageOps.mirror(to_pillow(image)).rotate(-90, expand=True))
 
 
 class TestQuality:
 
     def test_default(self, image: JPEGImage):
-        assert process_quality(image, Quality.default) is image
+        assert Quality.default.process(image) is image
 
     def test_color(self, image: JPEGImage):
-        assert process_quality(image, Quality.color) is image
+        assert Quality.color.process(image) is image
 
     def test_gray(self, image: JPEGImage):
-        result = process_quality(image, Quality.gray)
+        result = Quality.gray.process(image)
         assert_same(result, to_pillow(image).convert('L'))
 
     def test_bitonal(self, image: JPEGImage):
-        result = process_quality(image, Quality.bitonal)
+        result = Quality.bitonal.process(image)
         assert_same(result, to_pillow(image).convert('1'))
 
 
 @pytest.mark.parametrize('fmt,expected_format', zip(Format, ['JPEG', 'PNG']))
 def test_format(fmt: Format, expected_format: str, tmp_path: Path, image: JPEGImage):
     output_path = tmp_path / 'image'
-    process_format(image, fmt, output_path)
+    fmt.process(image, output_path)
     assert output_path.exists()
     with Image.open(output_path) as image:
         assert image.format == expected_format

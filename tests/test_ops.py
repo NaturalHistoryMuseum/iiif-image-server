@@ -1,10 +1,8 @@
+import pytest
 from pathlib import Path
 
-import pytest
-
 from iiif.exceptions import InvalidIIIFParameter
-from iiif.ops import parse_region, Region, parse_size, Size, parse_rotation, Rotation, \
-    parse_quality, Quality, parse_format, Format, parse_params, IIIFOps, IIIF_LEVEL
+from iiif.ops import Region, Size, Rotation, Quality, Format, IIIFOps, IIIF_LEVEL
 from iiif.profiles.base import ImageInfo
 
 """
@@ -26,94 +24,94 @@ def full_region(info: ImageInfo) -> Region:
 class TestParseRegion:
 
     def test_level0(self, info: ImageInfo):
-        region = parse_region(f'0,0,{info.width},{info.height}', info)
+        region = Region.parse(f'0,0,{info.width},{info.height}', info)
         assert region == Region(0, 0, info.width, info.height, full=True)
 
     def test_level1_regionByPx(self, info: ImageInfo):
-        region = parse_region('10,10,1000,2400', info)
+        region = Region.parse('10,10,1000,2400', info)
         assert region == Region(10, 10, 1000, 2400, full=False)
 
     def test_level1_regionByPx_oob(self, info):
-        region = parse_region('3000,5000,5000,5000', info)
+        region = Region.parse('3000,5000,5000,5000', info)
         assert region == Region(3000, 5000, 1000, 1000, full=False)
 
     def test_level1_regionSquare_portrait(self, info: ImageInfo):
-        region = parse_region('square', info)
+        region = Region.parse('square', info)
         assert region == Region(0, 1000, 4000, 4000, full=False)
 
     def test_level1_regionSquare_landscape(self):
         info = ImageInfo('test', 'image1', 6000, 4000)
-        region = parse_region('square', info)
+        region = Region.parse('square', info)
         assert region == Region(1000, 0, 4000, 4000, full=False)
 
     def test_level1_regionSquare_already(self):
         info = ImageInfo('test', 'image1', 4000, 4000)
-        region = parse_region('square', info)
+        region = Region.parse('square', info)
         assert region == Region(0, 0, 4000, 4000, full=True)
 
     def test_level2_regionByPct(self, info: ImageInfo):
-        region = parse_region('pct:10,10,90,90', info)
+        region = Region.parse('pct:10,10,90,90', info)
         assert region == Region(400, 600, 3600, 5400, full=False)
 
     def test_level2_regionByPct_oob(self, info):
-        region = parse_region('pct:10,10,100,100', info)
+        region = Region.parse('pct:10,10,100,100', info)
         assert region == Region(400, 600, 3600, 5400, full=False)
 
     @pytest.mark.parametrize('region', ['', '10,50', '-10,-15', '10,10,0,0'])
     def test_invalid(self, info, region):
         with pytest.raises(InvalidIIIFParameter) as exc_info:
-            parse_region(region, info)
+            Region.parse(region, info)
         assert exc_info.value.status_code == 400
 
 
 class TestParseSize:
 
     def test_level0(self, full_region: Region):
-        size = parse_size('max', full_region)
+        size = Size.parse('max', full_region)
         assert size == Size(full_region.w, full_region.h, max=True)
 
     def test_level1_sizeByW(self, full_region: Region):
-        size = parse_size('500,', full_region)
+        size = Size.parse('500,', full_region)
         assert size == Size(500, 750, max=False)
 
     def test_level1_sizeByH(self, full_region: Region):
-        size = parse_size(',600', full_region)
+        size = Size.parse(',600', full_region)
         assert size == Size(400, 600, max=False)
 
     def test_level1_sizeByWh(self, full_region: Region):
-        size = parse_size('190,568', full_region)
+        size = Size.parse('190,568', full_region)
         assert size == Size(190, 568, max=False)
 
     def test_level2_sizeByPct(self, full_region: Region):
-        size = parse_size('pct:23.673', full_region)
+        size = Size.parse('pct:23.673', full_region)
         assert size == Size(947, 1420, max=False)
 
     def test_level2_sizeByPct_max(self, full_region: Region):
-        size = parse_size('pct:100', full_region)
+        size = Size.parse('pct:100', full_region)
         assert size == Size(full_region.w, full_region.h, max=True)
 
     def test_level2_sizeByPct_max_rounding(self, full_region: Region):
-        size = parse_size('pct:99.999', full_region)
+        size = Size.parse('pct:99.999', full_region)
         assert size == Size(full_region.w, full_region.h, max=True)
 
     def test_level2_sizeByConfinedWh_1(self, full_region: Region):
-        size = parse_size('!568,901', full_region)
+        size = Size.parse('!568,901', full_region)
         assert size == Size(568, 852, max=False)
 
     def test_level2_sizeByConfinedWh_2(self, full_region: Region):
-        size = parse_size('!400,600', full_region)
+        size = Size.parse('!400,600', full_region)
         assert size == Size(400, 600, max=False)
 
     def test_level2_sizeByConfinedWh_3(self, full_region: Region):
-        size = parse_size('!4000,6000', full_region)
+        size = Size.parse('!4000,6000', full_region)
         assert size == Size(4000, 6000, max=True)
 
     def test_level2_sizeByConfinedWh_4(self, full_region: Region):
-        size = parse_size('!123,5783', full_region)
+        size = Size.parse('!123,5783', full_region)
         assert size == Size(123, 184, max=False)
 
     def test_level2_sizeByConfinedWh_5(self, full_region: Region):
-        size = parse_size('!225,100', Region(0, 0, 200, 133))
+        size = Size.parse('!225,100', Region(0, 0, 200, 133))
         assert size == Size(150, 100, max=False)
 
     invalid_scenarios = [
@@ -144,24 +142,24 @@ class TestParseSize:
     @pytest.mark.parametrize('size', invalid_scenarios)
     def test_invalid(self, full_region, size):
         with pytest.raises(InvalidIIIFParameter) as exc_info:
-            parse_size(size, full_region)
+            Size.parse(size, full_region)
         assert exc_info.value.status_code == 400
 
 
 class TestParseRotation:
 
     def test_level0(self):
-        rotation = parse_rotation('0')
+        rotation = Rotation.parse('0')
         assert rotation == Rotation(0)
 
     @pytest.mark.parametrize('angle', [0, 90, 180, 270])
     def test_level2_rotationBy90s(self, angle: int):
-        rotation = parse_rotation(str(angle))
+        rotation = Rotation.parse(str(angle))
         assert rotation == Rotation(angle)
 
     @pytest.mark.parametrize('angle', [0, 90, 180, 270])
     def test_level2_mirroring(self, angle: int):
-        rotation = parse_rotation(f'!{angle}')
+        rotation = Rotation.parse(f'!{angle}')
         assert rotation == Rotation(angle, mirror=True)
 
     # we don't support arbitrary rotation, nor values outside of 0, 90, 180 and 270
@@ -169,38 +167,38 @@ class TestParseRotation:
     def test_invalid_angles(self, angle: int):
         rotation = str(angle)
         with pytest.raises(InvalidIIIFParameter) as exc_info:
-            parse_rotation(rotation)
+            Rotation.parse(rotation)
         assert exc_info.value.status_code == 400
 
         rotation = f'!{angle}'
         with pytest.raises(InvalidIIIFParameter) as exc_info:
-            parse_rotation(rotation)
+            Rotation.parse(rotation)
         assert exc_info.value.status_code == 400
 
 
 class TestParseQuality:
 
     def test_level0(self):
-        assert parse_quality('default') == Quality.default
+        assert Quality.parse('default') == Quality.default
 
     def test_level2_color(self):
-        assert parse_quality('color') == Quality.color
+        assert Quality.parse('color') == Quality.color
 
     def test_level2_colour(self):
-        assert parse_quality('colour') == Quality.color
+        assert Quality.parse('colour') == Quality.color
 
     def test_level2_gray(self):
-        assert parse_quality('gray') == Quality.gray
+        assert Quality.parse('gray') == Quality.gray
 
     def test_level2_grey(self):
-        assert parse_quality('grey') == Quality.gray
+        assert Quality.parse('grey') == Quality.gray
 
     def test_bitonal(self):
-        assert parse_quality('bitonal') == Quality.bitonal
+        assert Quality.parse('bitonal') == Quality.bitonal
 
     def test_invalid(self):
         with pytest.raises(InvalidIIIFParameter) as exc_info:
-            parse_quality('banana')
+            Quality.parse('banana')
         assert exc_info.value.status_code == 400
 
     def test_extras(self):
@@ -216,22 +214,22 @@ class TestParseQuality:
 class TestParseFormat:
 
     def test_level0(self):
-        assert parse_format('jpg') == Format.jpg
+        assert Format.parse('jpg') == Format.jpg
 
     def test_level2_png(self):
-        assert parse_format('png') == Format.png
+        assert Format.parse('png') == Format.png
 
     @pytest.mark.parametrize('fmt', ['tif', 'gif', 'pdf', 'jp2', 'webp', 'arms!'])
     def test_other_formats_are_invalid(self, fmt):
         with pytest.raises(InvalidIIIFParameter) as exc_info:
-            parse_format(fmt)
+            Format.parse(fmt)
         assert exc_info.value.status_code == 400
 
 
 class TestParseParams:
 
     def test_default(self, info: ImageInfo):
-        ops = parse_params(info)
+        ops = IIIFOps.parse(info)
         assert ops == IIIFOps(
             region=Region(0, 0, info.width, info.height, full=True),
             size=Size(info.width, info.height, max=True),
@@ -241,7 +239,7 @@ class TestParseParams:
         )
 
     def test_with_options(self, info: ImageInfo):
-        ops = parse_params(
+        ops = IIIFOps.parse(
             info,
             region='10,20,40,50',
             size='10,',
