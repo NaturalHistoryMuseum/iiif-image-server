@@ -226,8 +226,12 @@ class MSSProfile(AbstractProfile):
             size = info.size
         file = info.choose_file(size)
         source = MSSSourceFile(info.emu_irn, file, info.original == file)
-        async with self.store.use(source) as path:
-            yield path
+
+        try:
+            async with self.store.use(source) as path:
+                yield path
+        except StoreStreamError as cause:
+            raise MSSStoreFailure(self.name, info.name, cause)
 
     async def get_mss_doc(self, name: str) -> dict:
         """
