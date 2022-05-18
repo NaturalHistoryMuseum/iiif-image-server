@@ -49,8 +49,7 @@ class MSSDocNotFound(ImageNotFound):
 class MSSStoreFailure(IIIFServerException):
 
     def __init__(self, profile: str, name: str, cause: 'StoreStreamError'):
-        super().__init__(f'Failed to retrieve the requested image data for {name} from the '
-                         f'{profile} backend, try again', status_code=503,
+        super().__init__(f'Failed to retrieve the requested image data for {name}', status_code=503,
                          log=f'Failed to stream the source file for {profile}:{name} from '
                              f'{cause.url} due to {cause.cause}')
 
