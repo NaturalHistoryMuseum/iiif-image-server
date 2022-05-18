@@ -126,7 +126,7 @@ class Region:
 @dataclass
 class Size:
     """
-    This op is IIIF level 1 compliant: https://iiif.io/api/image/3.0/compliance/#32-size.
+    This op is IIIF level 2 compliant: https://iiif.io/api/image/3.0/compliance/#32-size.
     """
     w: int
     h: int
