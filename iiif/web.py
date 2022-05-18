@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-
 import aiohttp
+import humanize
 import platform
 import time
 from PIL import Image
+from datetime import timedelta
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
@@ -17,6 +18,7 @@ from iiif.state import state
 # (https://pillow.readthedocs.io/en/latest/releasenotes/5.0.0.html#decompression-bombs-now-raise-exceptions)
 Image.MAX_IMAGE_PIXELS = None
 
+start_time = time.monotonic()
 app = FastAPI(title='Data Portal Image Service')
 app.add_middleware(
     CORSMiddleware,
@@ -66,6 +68,7 @@ async def status() -> JSONResponse:
     """
     body = {
         'status': ':)',
+        'uptime': humanize.precisedelta(timedelta(seconds=(start_time - time.monotonic()))),
         'default_profile': state.config.default_profile_name,
         'processing': await state.processor.get_status(),
         'profiles': {
@@ -82,6 +85,7 @@ async def favicon() -> StreamingResponse:
     This only exists to stop requests to /favicon.ico from erroring when running the server under /.
     It's probably only useful in the dev env tbh and just returns the IIIF favicon.
     """
+
     async def get():
         async with aiohttp.ClientSession() as session:
             async with session.get('https://iiif.io/favicon.ico') as response:
@@ -92,7 +96,6 @@ async def favicon() -> StreamingResponse:
 
 
 app.add_exception_handler(IIIFServerException, handler)
-
 
 # order matters here btw!
 app.include_router(originals.router)
