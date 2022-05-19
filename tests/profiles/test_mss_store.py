@@ -83,6 +83,7 @@ async def test_stream_access_denied(source_root):
             assert exc_info.value.source is source
             assert isinstance(exc_info.value.cause, ClientResponseError)
             assert exc_info.value.cause.status == 401
+            assert store.stream_errors['mss_direct'] == 1
     finally:
         await store.close()
 
@@ -103,6 +104,7 @@ async def test_stream_missing(source_root):
             assert exc_info.value.source is source
             assert isinstance(exc_info.value.cause, ClientResponseError)
             assert exc_info.value.cause.status == 404
+            assert store.stream_errors['mss_indirect'] == 1
     finally:
         await store.close()
 
@@ -151,6 +153,7 @@ async def test_stream_dams_fails(source_root: Path):
             assert exc_info.value.source is source
             assert isinstance(exc_info.value.cause, ClientResponseError)
             assert exc_info.value.cause.status == 404
+            assert store.stream_errors['dams'] == 1
     finally:
         await store.close()
 
