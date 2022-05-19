@@ -597,11 +597,17 @@ class MSSSourceStore(FetchCache):
         :return: a dict of status information
         """
         status = await super().get_status()
-        start_time = time.monotonic()
-        async with self.mss_session.get('/nhmlive/status') as response:
+        try:
+            start_time = time.monotonic()
+            async with self.mss_session.get('/nhmlive/status') as response:
+                status['mss_status'] = {
+                    **(await response.json()),
+                    'response_time': time.monotonic() - start_time,
+                }
+        except Exception as e:
             status['mss_status'] = {
-                **(await response.json()),
-                'response_time': time.monotonic() - start_time
+                'status': 'unreachable',
+                'error': str(e),
             }
         return status
 
