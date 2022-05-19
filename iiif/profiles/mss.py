@@ -1,3 +1,4 @@
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, Executor
 
 import asyncio
@@ -474,6 +475,7 @@ class MSSSourceStore(FetchCache):
         self._fast_pool = ProcessPoolExecutor(max_workers=slow_pool_size)
         self._slow_pool = ProcessPoolExecutor(max_workers=fast_pool_size)
         self._convert = partial(convert_image, quality=quality, subsampling=subsampling)
+        self.stream_errors = Counter()
 
     async def _fetch(self, source: MSSSourceFile):
         """
@@ -513,6 +515,7 @@ class MSSSourceStore(FetchCache):
         """
         check_dams = False
         current_url = source.url
+        stage = 'mss_direct'
         try:
             async with self.mss_session.get(source.url) as mss_response:
                 if mss_response.status == 404:
@@ -523,16 +526,19 @@ class MSSSourceStore(FetchCache):
 
             if check_dams:
                 current_url = source.dams_url
+                stage = 'mss_indirect'
                 async with self.mss_session.get(source.dams_url) as mss_response:
                     mss_response.raise_for_status()
                     # load the url in the response and fetch it
                     dams_url = await mss_response.text(encoding='utf-8')
 
                 current_url = dams_url
+                stage = 'dams'
                 async with self.dm_session.get(dams_url) as dams_response:
                     dams_response.raise_for_status()
                     yield dams_response
         except ClientError as e:
+            self.stream_errors[stage] += 1
             raise StoreStreamError(source, current_url, e)
 
     async def stream(self, source: MSSSourceFile):
@@ -597,6 +603,7 @@ class MSSSourceStore(FetchCache):
         :return: a dict of status information
         """
         status = await super().get_status()
+        status['error_breakdown'] = self.stream_errors
         try:
             start_time = time.monotonic()
             async with self.mss_session.get('/nhmlive/status') as response:
