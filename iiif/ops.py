@@ -69,10 +69,12 @@ class Region:
             with suppress(ValueError):
                 if parts[0].startswith('pct:'):
                     # convert the percentages to actual float x, y, w, and h values
-                    parts[0] = (float(parts[0][4:]) / 100) * info.width
-                    parts[1] = (float(parts[1]) / 100) * info.height
-                    parts[2] = (float(parts[2]) / 100) * info.width
-                    parts[3] = (float(parts[3]) / 100) * info.height
+                    parts = [
+                        (float(parts[0][4:]) / 100) * info.width,
+                        (float(parts[1]) / 100) * info.height,
+                        (float(parts[2]) / 100) * info.width,
+                        (float(parts[3]) / 100) * info.height,
+                    ]
 
                 # use round rather than int as it's a bit more intuitive for users
                 x, y, w, h = map(round, map(float, parts))
