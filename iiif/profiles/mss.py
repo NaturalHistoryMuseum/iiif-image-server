@@ -382,14 +382,18 @@ class MSSElasticsearchHandler:
 
         :return: a dict of status info
         """
-        health_url = f'{next(self.es_hosts)}/_cluster/health'
-        start_time = time.monotonic()
-        async with self.es_session.get(health_url) as response:
-            return {
-                'status': {
+        try:
+            health_url = f'{next(self.es_hosts)}/_cluster/health'
+            start_time = time.monotonic()
+            async with self.es_session.get(health_url) as response:
+                return {
                     'status': (await response.json())['status'],
                     'response_time': time.monotonic() - start_time
                 }
+        except Exception as e:
+            return {
+                'status': 'unreachable',
+                'error': str(e),
             }
 
     async def close(self):
