@@ -1,3 +1,4 @@
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, Executor
 
 import asyncio
@@ -5,6 +6,7 @@ import json
 import logging
 import shutil
 import tempfile
+import time
 from aiohttp import ClientResponse, ClientError
 from cachetools import TTLCache
 from contextlib import asynccontextmanager
@@ -48,8 +50,7 @@ class MSSDocNotFound(ImageNotFound):
 class MSSStoreFailure(IIIFServerException):
 
     def __init__(self, profile: str, name: str, cause: 'StoreStreamError'):
-        super().__init__(f'Failed to retrieve the requested image data for {name} from the '
-                         f'{profile} backend, try again', status_code=503,
+        super().__init__(f'Failed to retrieve the requested image data for {name}', status_code=503,
                          log=f'Failed to stream the source file for {profile}:{name} from '
                              f'{cause.url} due to {cause.cause}')
 
@@ -226,8 +227,12 @@ class MSSProfile(AbstractProfile):
             size = info.size
         file = info.choose_file(size)
         source = MSSSourceFile(info.emu_irn, file, info.original == file)
-        async with self.store.use(source) as path:
-            yield path
+
+        try:
+            async with self.store.use(source) as path:
+                yield path
+        except StoreStreamError as cause:
+            raise MSSStoreFailure(self.name, info.name, cause)
 
     async def get_mss_doc(self, name: str) -> dict:
         """
@@ -336,6 +341,7 @@ class MSSProfile(AbstractProfile):
     async def get_status(self) -> dict:
         status = await super().get_status()
         status['source_cache'] = await self.store.get_status()
+        status['es'] = await self.es_handler.get_status()
         return status
 
 
@@ -370,6 +376,26 @@ class MSSElasticsearchHandler:
             total = result['hits']['total']
             first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
             return total, first_doc
+
+    async def get_status(self) -> dict:
+        """
+        Returns a dict describing the Elasticsearch cluster health.
+
+        :return: a dict of status info
+        """
+        try:
+            health_url = f'{next(self.es_hosts)}/_cluster/health'
+            start_time = time.monotonic()
+            async with self.es_session.get(health_url) as response:
+                return {
+                    'status': (await response.json())['status'],
+                    'response_time': time.monotonic() - start_time
+                }
+        except Exception as e:
+            return {
+                'status': 'unreachable',
+                'error': str(e),
+            }
 
     async def close(self):
         await self.es_session.close()
@@ -449,6 +475,7 @@ class MSSSourceStore(FetchCache):
         self._fast_pool = ProcessPoolExecutor(max_workers=slow_pool_size)
         self._slow_pool = ProcessPoolExecutor(max_workers=fast_pool_size)
         self._convert = partial(convert_image, quality=quality, subsampling=subsampling)
+        self.stream_errors = Counter()
 
     async def _fetch(self, source: MSSSourceFile):
         """
@@ -488,6 +515,7 @@ class MSSSourceStore(FetchCache):
         """
         check_dams = False
         current_url = source.url
+        stage = 'mss_direct'
         try:
             async with self.mss_session.get(source.url) as mss_response:
                 if mss_response.status == 404:
@@ -498,16 +526,19 @@ class MSSSourceStore(FetchCache):
 
             if check_dams:
                 current_url = source.dams_url
+                stage = 'mss_indirect'
                 async with self.mss_session.get(source.dams_url) as mss_response:
                     mss_response.raise_for_status()
                     # load the url in the response and fetch it
                     dams_url = await mss_response.text(encoding='utf-8')
 
                 current_url = dams_url
+                stage = 'dams'
                 async with self.dm_session.get(dams_url) as dams_response:
                     dams_response.raise_for_status()
                     yield dams_response
         except ClientError as e:
+            self.stream_errors[stage] += 1
             raise StoreStreamError(source, current_url, e)
 
     async def stream(self, source: MSSSourceFile):
@@ -563,6 +594,29 @@ class MSSSourceStore(FetchCache):
         """
         async with self.mss_session.get(MSSSourceFile.check_url(emu_irn)) as response:
             return response.ok
+
+    async def get_status(self) -> dict:
+        """
+        Add an MSS specific status to the basic stats returned by the FetchCache super
+        implementation.
+
+        :return: a dict of status information
+        """
+        status = await super().get_status()
+        status['error_breakdown'] = self.stream_errors
+        try:
+            start_time = time.monotonic()
+            async with self.mss_session.get('/nhmlive/status') as response:
+                status['mss_status'] = {
+                    **(await response.json()),
+                    'response_time': time.monotonic() - start_time,
+                }
+        except Exception as e:
+            status['mss_status'] = {
+                'status': 'unreachable',
+                'error': str(e),
+            }
+        return status
 
     async def close(self):
         """

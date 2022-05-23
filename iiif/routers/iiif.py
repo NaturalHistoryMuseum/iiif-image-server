@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from starlette.responses import FileResponse, JSONResponse
 
-from iiif.ops import IIIF_LEVEL, parse_params, Quality
+from iiif.ops import IIIF_LEVEL, IIIFOps, Quality
 from iiif.state import state
 from iiif.utils import get_mimetype, generate_sizes
 
@@ -79,7 +79,7 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
     profile, info = await state.get_profile_and_info(identifier)
     # parse the IIIF parts of the request to assert parameter correctness and define what how we're
     # going to manipulate the image when we process it
-    ops = parse_params(info, region, size, rotation, quality, fmt)
+    ops = IIIFOps.parse(info, region, size, rotation, quality, fmt)
     path = await state.processor.process(profile, info, ops)
     headers = {
         'cache-control': f'max-age={profile.cache_for}',

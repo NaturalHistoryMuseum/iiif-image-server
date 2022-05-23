@@ -18,7 +18,8 @@ class State:
         self.profiles = load_profiles(self.config)
         # create the processor which actually does the IIIF image processing
         self.processor = ImageProcessor(self.config.cache_path, self.config.processed_cache_ttl,
-                                        self.config.processed_cache_size)
+                                        self.config.processed_cache_size,
+                                        self.config.processing_pool_size)
 
     def get_profile(self, profile_name: Optional[str] = None) -> AbstractProfile:
         """
