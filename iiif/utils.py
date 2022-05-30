@@ -106,6 +106,26 @@ def generate_sizes(width: int, height: int, minimum_size: int = 200):
     return sizes
 
 
+@lru_cache(maxsize=65536)
+def generate_tiles(tile_size: int, width: int, height: int) -> dict:
+    """
+    Calculates the IIIF tiles info.json response value. See https://iiif.io/api/image/3.0/#54-tiles.
+
+    :param tile_size: the size of the tile
+    :param width: the width of the image
+    :param height: the height of the image
+    :return: a dict containing the tile width and the scale factors available
+    """
+    scale_factors = []
+    max_len = max(width, height)
+    for i in count(0):
+        factor = 2 ** i
+        scale_factors.append(factor)
+        if factor > (max_len / tile_size):
+            break
+    return {'width': tile_size, 'scaleFactors': scale_factors}
+
+
 def convert_image(image_path: Path, target_path: Path, quality: int = 80,
                   subsampling: str = '4:2:0'):
     """

@@ -3,7 +3,7 @@ from starlette.responses import FileResponse, JSONResponse
 
 from iiif.ops import IIIF_LEVEL, IIIFOps, Quality
 from iiif.state import state
-from iiif.utils import get_mimetype, generate_sizes
+from iiif.utils import get_mimetype, generate_sizes, generate_tiles
 
 router = APIRouter()
 
@@ -36,9 +36,7 @@ async def get_image_info(identifier: str) -> JSONResponse:
         'rights': profile.rights,
         'profile': f'level{IIIF_LEVEL}',
         'tiles': [
-            {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
-            {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
-            {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
+            generate_tiles(256, info.width, info.height)
         ],
         'sizes': generate_sizes(info.width, info.height, state.config.min_sizes_size),
         # suggest to clients that upscaling isn't supported
