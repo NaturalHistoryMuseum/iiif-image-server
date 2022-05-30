@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 from wand.exceptions import MissingDelegateError
 
 from iiif.utils import convert_image, generate_sizes, get_size, get_mimetype, parse_identifier, \
-    to_pillow, to_jpegtran, Locker, FetchCache, Fetchable
+    to_pillow, to_jpegtran, Locker, FetchCache, Fetchable, generate_tiles
 from tests.utils import create_image, create_file
 
 
@@ -116,6 +116,26 @@ def test_generate_sizes():
     assert sizes[0] == {'width': 1000, 'height': 1001}
     assert sizes[1] == {'width': 500, 'height': 500}
     assert sizes[2] == {'width': 250, 'height': 250}
+
+
+def test_generate_tiles_exact_match():
+    tiles = generate_tiles(256, 4096, 8192)
+
+    # test that the call result is cached
+    assert generate_tiles(256, 4096, 8192) is tiles
+
+    assert tiles['width'] == 256
+    assert tiles['scaleFactors'] == [1, 2, 4, 8, 16, 32]
+
+
+def test_generate_tiles_not_exact():
+    tiles = generate_tiles(256, 8191, 8193)
+
+    # test that the call result is cached
+    assert generate_tiles(256, 8191, 8193) is tiles
+
+    assert tiles['width'] == 256
+    assert tiles['scaleFactors'] == [1, 2, 4, 8, 16, 32, 64]
 
 
 def test_get_size(config):

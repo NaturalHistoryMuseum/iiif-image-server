@@ -121,7 +121,7 @@ def generate_tiles(tile_size: int, width: int, height: int) -> dict:
     for i in count(0):
         factor = 2 ** i
         scale_factors.append(factor)
-        if factor > (max_len / tile_size):
+        if factor >= (max_len / tile_size):
             break
     return {'width': tile_size, 'scaleFactors': scale_factors}
 
