@@ -1,3 +1,5 @@
+import gc
+
 from PIL import ImageOps
 from contextlib import suppress
 from dataclasses import dataclass
@@ -405,14 +407,18 @@ class IIIFOps:
         :param output_path: the target location
         """
         image = JPEGImage(str(source_path))
+        try:
+            # process each op in the right order
+            image = self.region.process(image)
+            image = self.size.process(image)
+            image = self.rotation.process(image)
+            image = self.quality.process(image)
 
-        # process each op in the right order
-        image = self.region.process(image)
-        image = self.size.process(image)
-        image = self.rotation.process(image)
-        image = self.quality.process(image)
-
-        # ensure the full cache path exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        # write the processed image to disk
-        self.format.process(image, output_path)
+            # ensure the full cache path exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            # write the processed image to disk
+            self.format.process(image, output_path)
+        finally:
+            # make sure the image data in memory gets freed
+            del image
+            gc.collect()
