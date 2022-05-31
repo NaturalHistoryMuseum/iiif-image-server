@@ -57,9 +57,7 @@ def test_image_info_handler(test_client, config):
     assert info['maxWidth'] == 400
     assert info['maxHeight'] == 500
     assert info['tiles'] == [
-        {'width': 512, 'scaleFactors': [1, 2, 4, 8, 16]},
-        {'width': 256, 'scaleFactors': [1, 2, 4, 8, 16]},
-        {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
+        {'width': 256, 'scaleFactors': [1, 2]},
     ]
     assert info['sizes'] == [
         {"width": 400, "height": 500},
