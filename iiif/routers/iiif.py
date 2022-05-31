@@ -36,7 +36,7 @@ async def get_image_info(identifier: str) -> JSONResponse:
         'rights': profile.rights,
         'profile': f'level{IIIF_LEVEL}',
         'tiles': [
-            generate_tiles(256, info.width, info.height)
+            generate_tiles(512, info.width, info.height)
         ],
         'sizes': generate_sizes(info.width, info.height, state.config.min_sizes_size),
         # suggest to clients that upscaling isn't supported
