@@ -4,7 +4,6 @@ from concurrent.futures import ProcessPoolExecutor, Executor
 import asyncio
 import json
 import logging
-import shutil
 import tempfile
 import time
 from aiohttp import ClientResponse, ClientError
