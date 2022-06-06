@@ -489,18 +489,12 @@ class MSSSourceStore(FetchCache):
                 f.write(chunk)
             f.flush()
 
-            # convert the image file, saving the data in a temp file but then moving it
-            # to the source_path after the conversion is complete
-            with tempfile.NamedTemporaryFile(delete=False) as g:
-                target_path = Path(g.name)
-
-                pool = self._choose_convert_pool(source.file)
-                convert = partial(self._convert, image_path, target_path)
-                await asyncio.get_running_loop().run_in_executor(pool, convert)
-
-                cache_path = self.root / source.store_path
-                cache_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(target_path, cache_path)
+            # the later IIIF ops stage expects a JPEG image so convert the source image to JPEG here
+            pool = self._choose_convert_pool(source.file)
+            cache_path = self.root / source.store_path
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            convert = partial(self._convert, image_path, cache_path)
+            await asyncio.get_running_loop().run_in_executor(pool, convert)
 
     @asynccontextmanager
     async def _open_stream(self, source: MSSSourceFile) -> ClientResponse:
