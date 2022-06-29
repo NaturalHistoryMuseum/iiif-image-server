@@ -1,3 +1,4 @@
+import os
 from PIL import ImageOps
 from contextlib import suppress
 from dataclasses import dataclass
@@ -10,7 +11,7 @@ from typing import List
 
 from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
-from iiif.utils import to_pillow, to_jpegtran
+from iiif.utils import to_pillow, to_jpegtran, logger
 
 # this server currently supports IIIF level2
 IIIF_LEVEL = 2
@@ -404,6 +405,7 @@ class IIIFOps:
         :param source_path: the source image
         :param output_path: the target location
         """
+        logger.info(f'PROC pid: {os.getpid()}, source: {source_path}, output: {output_path}')
         image = JPEGImage(str(source_path))
 
         # process each op in the right order

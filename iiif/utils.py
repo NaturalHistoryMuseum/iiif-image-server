@@ -9,6 +9,7 @@ import humanize
 import io
 import logging
 import mimetypes
+import os
 from PIL import Image
 from contextlib import suppress, asynccontextmanager
 from functools import lru_cache
@@ -118,6 +119,7 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
     :param quality: the jpeg quality setting to use
     :param subsampling: the jpeg subsampling to use
     """
+    logger.info(f'CONV pid: {os.getpid()}, source: {image_path}, output: {target_path}')
     try:
         with WandImage(filename=str(image_path)) as image:
             if image.format.lower() == 'jpeg':

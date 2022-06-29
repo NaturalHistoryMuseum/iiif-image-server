@@ -5,11 +5,7 @@ import logging
 from fastapi import Request
 from starlette.responses import JSONResponse
 from typing import Optional
-
-# this is all assuming we're using uvicorn...
-uvicorn_logger = logging.getLogger('uvicorn.error')
-# use this logger to dump stuff into the same channels as the uvicorn logs
-logger = uvicorn_logger.getChild('iiif')
+from utils import logger
 
 
 class IIIFServerException(Exception):
