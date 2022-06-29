@@ -5,7 +5,7 @@ import logging
 from fastapi import Request
 from starlette.responses import JSONResponse
 from typing import Optional
-from utils import logger
+from iiif.utils import logger
 
 
 class IIIFServerException(Exception):
