@@ -23,7 +23,7 @@ from iiif.config import Config
 from iiif.exceptions import Timeout, IIIFServerException, ImageNotFound, log_error
 from iiif.profiles.base import AbstractProfile, ImageInfo
 from iiif.utils import Locker, convert_image, create_client_session, FetchCache, Fetchable
-from iiif.utils import get_size
+from iiif.utils import get_size, logger
 
 
 class MSSAccessDenied(ImageNotFound):
@@ -496,6 +496,7 @@ class MSSSourceStore(FetchCache):
 
                 pool = self._choose_convert_pool(source.file)
                 convert = partial(self._convert, image_path, target_path)
+                logger.info(f'PRE-CONV: {source.emu_irn}, {source.is_original}, {source.file} ({image_path})')
                 await asyncio.get_running_loop().run_in_executor(pool, convert)
 
                 cache_path = self.root / source.store_path
