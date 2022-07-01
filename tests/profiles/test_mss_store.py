@@ -15,17 +15,6 @@ def source_root(tmpdir) -> Path:
     return Path(tmpdir, 'test')
 
 
-async def test_choose_convert_pool(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
-    try:
-        assert store._choose_convert_pool('beans.jpg') == store._fast_pool
-        assert store._choose_convert_pool('beans.jpeg') == store._fast_pool
-        assert store._choose_convert_pool('beans.tiff') == store._slow_pool
-        assert store._choose_convert_pool('beans.any') == store._slow_pool
-    finally:
-        await store.close()
-
-
 async def test_check_access_ok(source_root: Path):
     store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345

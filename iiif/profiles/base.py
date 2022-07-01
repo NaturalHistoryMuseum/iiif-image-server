@@ -1,3 +1,5 @@
+from concurrent.futures import Executor
+
 import abc
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -49,16 +51,19 @@ class AbstractProfile(abc.ABC):
     jpeg file, it can be processed in a common way (see the processing module).
     """
 
-    def __init__(self, name: str, config: Config, rights: str, cache_for: float = 60):
+    def __init__(self, name: str, config: Config, pool: Executor, rights: str,
+                 cache_for: float = 60, **kwargs):
         """
         :param name: the name of the profile, should be unique across profiles
         :param config: the config object
+        :param pool: the general purpose pool for offloading processing if necessary
         :param rights: the rights definition for all images handled by this profile
         :param cache_for: how long in seconds a client should cache the results from this profile
                           (both info.json and image data)
         """
         self.name = name
         self.config = config
+        self.pool = pool
         # this is where all of our source images will be stored
         self.source_path = config.source_path / name
         # this is where all of our processed images will be stored
