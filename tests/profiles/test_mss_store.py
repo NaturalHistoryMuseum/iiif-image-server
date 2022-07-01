@@ -1,3 +1,5 @@
+from concurrent.futures import Executor, ProcessPoolExecutor
+
 import pytest
 from PIL import Image
 from aiohttp import ClientResponseError
@@ -15,8 +17,13 @@ def source_root(tmpdir) -> Path:
     return Path(tmpdir, 'test')
 
 
-async def test_check_access_ok(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+@pytest.fixture
+def pool() -> Executor:
+    return ProcessPoolExecutor(max_workers=1)
+
+
+async def test_check_access_ok(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     try:
         with aioresponses() as m:
@@ -26,8 +33,8 @@ async def test_check_access_ok(source_root: Path):
         await store.close()
 
 
-async def test_check_access_failed(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_check_access_failed(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     try:
         with aioresponses() as m:
@@ -37,8 +44,8 @@ async def test_check_access_failed(source_root: Path):
         await store.close()
 
 
-async def test_stream(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_stream(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
     content = b'1234 look at me i am a jpg image'
@@ -56,9 +63,9 @@ async def test_stream(source_root: Path):
         await store.close()
 
 
-async def test_stream_access_denied(source_root):
+async def test_stream_access_denied(source_root, pool: Executor):
     source_root: Path
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
     try:
@@ -77,8 +84,8 @@ async def test_stream_access_denied(source_root):
         await store.close()
 
 
-async def test_stream_missing(source_root):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_stream_missing(source_root, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
     try:
@@ -98,8 +105,8 @@ async def test_stream_missing(source_root):
         await store.close()
 
 
-async def test_stream_use_dams(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_stream_use_dams(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
     dams_host = 'http://not.the.real.dams'
@@ -122,8 +129,8 @@ async def test_stream_use_dams(source_root: Path):
         await store.close()
 
 
-async def test_stream_dams_fails(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_stream_dams_fails(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
     dams_host = 'http://not.the.real.dams'
@@ -147,8 +154,8 @@ async def test_stream_dams_fails(source_root: Path):
         await store.close()
 
 
-async def test_use(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_use(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
 
@@ -168,8 +175,8 @@ async def test_use(source_root: Path):
         await store.close()
 
 
-async def test_get_file_size(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_get_file_size(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
     content_length = 489345
@@ -180,8 +187,8 @@ async def test_get_file_size(source_root: Path):
         assert await store.get_file_size(source) == content_length
 
 
-async def test_get_file_size_fail(source_root: Path):
-    store = MSSSourceStore(source_root, MOCK_HOST, 10, 10, 10)
+async def test_get_file_size_fail(source_root: Path, pool: Executor):
+    store = MSSSourceStore(source_root, pool, MOCK_HOST, 10, 10, 10)
     emu_irn = 12345
     file = 'some_file.jpg'
 
