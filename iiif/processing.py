@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Executor
 
 import asyncio
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -54,16 +53,15 @@ class ImageProcessor(FetchCache):
     Class controlling IIIF image processing.
     """
 
-    def __init__(self, root: Path, ttl: float, max_size: float, max_workers: int = os.cpu_count()):
+    def __init__(self, root: Path, pool: Executor, ttl: float, max_size: float):
         """
         :param root: the root path to cache the processed images in
+        :param pool: the general purpose pool for offloading processing if necessary
         :param ttl: how long processed images should exist on disk after they've been last used
         :param max_size: maximum bytes to store in this cache
-        :param max_workers: maximum number of worker processes to use to work on processing images
         """
         super().__init__(root, ttl, max_size)
-        self.max_workers = max_workers
-        self.executor = ProcessPoolExecutor(max_workers=max_workers)
+        self.pool = pool
 
     async def process(self, profile: AbstractProfile, info: ImageInfo, ops: IIIFOps) -> Path:
         """
@@ -92,21 +90,4 @@ class ImageProcessor(FetchCache):
         """
         loop = asyncio.get_event_loop()
         async with task.profile.use_source(task.info, task.size_hint) as source_path:
-            await loop.run_in_executor(self.executor, task.ops.process, source_path,
-                                       task.store_path)
-
-    def stop(self):
-        """
-        Shuts down the processing pool. This will block until they're all done.
-        """
-        self.executor.shutdown()
-
-    async def get_status(self) -> dict:
-        """
-        Returns some basic stats info as a dict.
-
-        :return: a dict of stats
-        """
-        status = await super().get_status()
-        status['pool_size'] = self.max_workers
-        return status
+            await loop.run_in_executor(self.pool, task.ops.process, source_path, task.store_path)

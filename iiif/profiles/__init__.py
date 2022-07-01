@@ -1,3 +1,5 @@
+from concurrent.futures import Executor
+
 from copy import deepcopy
 from typing import Dict
 
@@ -12,11 +14,12 @@ registry = {
 }
 
 
-def load_profiles(config: Config) -> Dict[str, AbstractProfile]:
+def load_profiles(config: Config, pool: Executor) -> Dict[str, AbstractProfile]:
     """
     Given the config object, create all the profiles that are defined within it and return them.
 
     :param config: the config object
+    :param pool: pool for offloaded processing
     :return: a dict of profiles keyed by name
     """
     profiles = {}
@@ -27,5 +30,5 @@ def load_profiles(config: Config) -> Dict[str, AbstractProfile]:
         # here's that pop, wow!
         profile_creator = registry[options.pop('type')]
         rights = options.pop('rights')
-        profiles[name] = profile_creator(name, config, rights, **options)
+        profiles[name] = profile_creator(name, config, pool, rights, **options)
     return profiles

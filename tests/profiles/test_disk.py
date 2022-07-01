@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 import math
 import pytest
 
@@ -8,7 +10,7 @@ from tests.utils import create_image
 
 @pytest.fixture(scope='function')
 def disk_profile(config):
-    return OnDiskProfile('test', config, 'http://creativecommons.org/licenses/by/4.0/')
+    return OnDiskProfile('test', config, MagicMock(), 'http://creativecommons.org/licenses/by/4.0/')
 
 
 class TestOnDiskProfile:

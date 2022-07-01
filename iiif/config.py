@@ -22,8 +22,11 @@ class Config:
         # info.json settings
         self.min_sizes_size = options.get('min_sizes_size', 200)
 
+        # process pool settings
+        self.pool_size = options.get('pool_size', os.cpu_count())
+        self.pool_recycle_time = options.get('pool_recycle_time', 10)
+
         # image processing settings
-        self.processing_pool_size = options.get('processing_pool_size', 2)
         self.processed_cache_size = options.get('processed_cache_size', 1024 * 1024 * 256)
         self.processed_cache_ttl = options.get('processed_cache_ttl', 12 * 60 * 60)
 
