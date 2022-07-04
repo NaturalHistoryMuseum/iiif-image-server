@@ -10,7 +10,7 @@ from typing import List
 
 from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
-from iiif.utils import to_pillow, to_jpegtran
+from iiif.utils import to_pillow, to_jpegtran, disable_bomb_errors
 
 # this server currently supports IIIF level2
 IIIF_LEVEL = 2
@@ -404,6 +404,9 @@ class IIIFOps:
         :param source_path: the source image
         :param output_path: the target location
         """
+        # given this is usually run in a separate process, make sure we have disabled bomb errors
+        disable_bomb_errors()
+
         image = JPEGImage(str(source_path))
 
         # process each op in the right order

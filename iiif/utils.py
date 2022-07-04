@@ -118,6 +118,8 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
     :param quality: the jpeg quality setting to use
     :param subsampling: the jpeg subsampling to use
     """
+    # given this is usually run in a separate process, make sure we have disabled bomb errors
+    disable_bomb_errors()
     try:
         with WandImage(filename=str(image_path)) as image:
             if image.format.lower() == 'jpeg':
@@ -404,3 +406,14 @@ class FetchCache(abc.ABC):
             'in_use': len(self._in_use),
             'waiting_clean_up': len(self._cleaners),
         }
+
+
+def disable_bomb_errors():
+    """
+    Disables DecompressionBombErrors that are thrown by Pillow when an image we're processing is too
+    large.
+    Details: https://pillow.readthedocs.io/en/latest/releasenotes/5.0.0.html#decompression-bombs-now-raise-exceptions
+    """
+    # disable DecompressionBombErrors
+    # ()
+    Image.MAX_IMAGE_PIXELS = None
