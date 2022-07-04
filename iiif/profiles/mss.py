@@ -1,5 +1,5 @@
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, Executor
+from concurrent.futures import Executor
 
 import asyncio
 import json
@@ -61,6 +61,13 @@ class MSSStoreNoLength(IIIFServerException):
         super().__init__(f'Failed to get data length for {name} from the {profile} backend.')
 
 
+class MSSConversionFailure(IIIFServerException):
+
+    def __init__(self, source: 'MSSSourceFile', cause: Exception):
+        super().__init__(f'Failed to convert source image',
+                         log=f'Failed to convert {source.file} ({source.emu_irn}) due to {cause}')
+
+
 class MSSImageInfo(ImageInfo):
     """
     MSS variant of the ImageInfo class.
@@ -103,6 +110,7 @@ class MSSProfile(AbstractProfile):
     def __init__(self,
                  name: str,
                  config: Config,
+                 pool: Executor,
                  rights: str,
                  es_hosts: List[str],
                  mss_url: str,
@@ -115,8 +123,6 @@ class MSSProfile(AbstractProfile):
                  info_lock_ttl: float = 60,
                  source_cache_size: int = 1024 * 1024 * 256,
                  source_cache_ttl: float = 12 * 60 * 60,
-                 convert_fast_pool_size: int = 1,
-                 convert_slow_pool_size: int = 1,
                  convert_quality: int = 85,
                  convert_subsampling: str = '4:2:0',
                  dams_limit: int = 4,
@@ -126,6 +132,7 @@ class MSSProfile(AbstractProfile):
         """
         :param name: the name of this profile
         :param config: the Config object
+        :param pool: the general purpose pool for offloading processing if necessary
         :param rights: the rights url for images served by this profile
         :param es_hosts: a list of elasticsearch hosts to use
         :param mss_url: mss base url
@@ -143,8 +150,6 @@ class MSSProfile(AbstractProfile):
                               order to find out the size)
         :param source_cache_size: max size in bytes of the source cache on disk
         :param source_cache_ttl: ttl of each source image in the cache
-        :param convert_fast_pool_size: how many processes to use for converting "fast" images
-        :param convert_slow_pool_size: how many processes to use for converting "slow" images
         :param convert_quality: quality to use when converting a source to a jpeg
         :param convert_subsampling: subsampling value to use when converting a source to a jpeg
         :param dams_limit: the maximum number of simultaneous connections that can be made to the
@@ -153,7 +158,7 @@ class MSSProfile(AbstractProfile):
                          requests to dams
         :param kwargs: extra kwargs for the AbstractProfile base class __init__
         """
-        super().__init__(name, config, rights, **kwargs)
+        super().__init__(name, config, pool, rights, **kwargs)
         self.info_cache = TTLCache(info_cache_size, info_cache_ttl)
         self.get_info_locker = Locker(default_timeout=info_lock_ttl)
 
@@ -161,10 +166,9 @@ class MSSProfile(AbstractProfile):
         self.mss_doc_cache = TTLCache(maxsize=info_cache_size, ttl=info_cache_ttl)
 
         self.es_handler = MSSElasticsearchHandler(es_hosts, es_limit, mss_index)
-        self.store = MSSSourceStore(self.source_path, mss_url, source_cache_size,
+        self.store = MSSSourceStore(self.source_path, pool, mss_url, source_cache_size,
                                     source_cache_ttl, mss_limit, dams_limit, mss_ssl,
-                                    dams_ssl, convert_slow_pool_size, convert_fast_pool_size,
-                                    convert_quality, convert_subsampling)
+                                    dams_ssl, convert_quality, convert_subsampling)
 
     async def get_info(self, name: str) -> MSSImageInfo:
         """
@@ -451,12 +455,12 @@ class MSSSourceStore(FetchCache):
     streaming them to users directly.
     """
 
-    def __init__(self, root: Path, mss_url: str, max_size: int, ttl: float,
+    def __init__(self, root: Path, pool: Executor, mss_url: str, max_size: int, ttl: float,
                  mss_limit: int = 20, dams_limit: int = 5, mss_ssl: bool = True,
-                 dams_ssl: bool = True, slow_pool_size: int = 1, fast_pool_size: int = 1,
-                 quality: int = 85, subsampling: str = '4:2:0'):
+                 dams_ssl: bool = True, quality: int = 85, subsampling: str = '4:2:0'):
         """
         :param root: the path to store the data
+        :param pool: the general purpose pool for offloading processing if necessary
         :param mss_url: the MSS base URL
         :param max_size: maximum size that the cache can grow to
         :param ttl: the maximum time a source file can be unused before it is removed
@@ -464,16 +468,13 @@ class MSSSourceStore(FetchCache):
         :param dams_limit: the maximum number of simultaneous connections allowed to the dams
         :param mss_ssl: whether to use SSL for MSS connections
         :param dams_ssl: whether to use SSL for the dams connections
-        :param slow_pool_size: size of the "slow" conversion pool
-        :param fast_pool_size: size of the "fast" conversion pool
         :param quality: jpeg quality of converted source files
         :param subsampling: jpeg subsampling value of converted source files
         """
         super().__init__(root, ttl, max_size)
+        self.pool = pool
         self.mss_session = create_client_session(mss_limit, mss_ssl, mss_url)
         self.dm_session = create_client_session(dams_limit, dams_ssl)
-        self._fast_pool = ProcessPoolExecutor(max_workers=slow_pool_size)
-        self._slow_pool = ProcessPoolExecutor(max_workers=fast_pool_size)
         self._convert = partial(convert_image, quality=quality, subsampling=subsampling)
         self.stream_errors = Counter()
 
@@ -494,9 +495,11 @@ class MSSSourceStore(FetchCache):
             with tempfile.NamedTemporaryFile(delete=False) as g:
                 target_path = Path(g.name)
 
-                pool = self._choose_convert_pool(source.file)
                 convert = partial(self._convert, image_path, target_path)
-                await asyncio.get_running_loop().run_in_executor(pool, convert)
+                try:
+                    await asyncio.get_running_loop().run_in_executor(self.pool, convert)
+                except Exception as cause:
+                    raise MSSConversionFailure(source, cause)
 
                 cache_path = self.root / source.store_path
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -566,24 +569,6 @@ class MSSSourceStore(FetchCache):
                 raise StoreStreamNoLength('The backend returned no content-length')
             return int(size)
 
-    def _choose_convert_pool(self, file: str) -> Executor:
-        """
-        Pick the pool to use for converting the given file. JPEGs are converted in the fast pool
-        whereas everything else is done in the slow pool.
-
-        To avoid the conversion pool sitting there just converting loads of giant tiffs and blocking
-        anything else from going through, we have two pools with different priorities (this could
-        have been implemented as a priority queue of some kind but this is easier and time is money,
-        yo! Might as well let the OS do the scheduling).
-
-        :param file: the file name
-        :return: which pool to convert in
-        """
-        if Path(file).suffix.lower() in ('.jpeg', '.jpg'):
-            return self._fast_pool
-        else:
-            return self._slow_pool
-
     async def check_access(self, emu_irn: int) -> bool:
         """
         Check whether the EMu multimedia IRN is valid according to the APS (which is a part of the
@@ -625,5 +610,3 @@ class MSSSourceStore(FetchCache):
         """
         await self.mss_session.close()
         await self.dm_session.close()
-        self._fast_pool.shutdown()
-        self._slow_pool.shutdown()

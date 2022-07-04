@@ -55,7 +55,7 @@ async def on_shutdown():
     """
     for profile in state.profiles.values():
         await profile.close()
-    state.processor.stop()
+    state.pool.shutdown()
 
 
 @app.get('/status')

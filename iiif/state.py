@@ -1,3 +1,4 @@
+from loky import get_reusable_executor
 from typing import Tuple, Optional
 
 from iiif.config import load_config, Config
@@ -15,11 +16,14 @@ class State:
 
     def __init__(self):
         self.config: Config = load_config()
-        self.profiles = load_profiles(self.config)
+        # create a pool for everyone to use for processing
+        self.pool = get_reusable_executor(max_workers=self.config.pool_size,
+                                          timeout=self.config.pool_recycle_time)
+        self.profiles = load_profiles(self.config, self.pool)
         # create the processor which actually does the IIIF image processing
-        self.processor = ImageProcessor(self.config.cache_path, self.config.processed_cache_ttl,
-                                        self.config.processed_cache_size,
-                                        self.config.processing_pool_size)
+        self.processor = ImageProcessor(self.config.cache_path, self.pool,
+                                        self.config.processed_cache_ttl,
+                                        self.config.processed_cache_size)
 
     def get_profile(self, profile_name: Optional[str] = None) -> AbstractProfile:
         """
