@@ -4,7 +4,6 @@ import aiohttp
 import humanize
 import platform
 import time
-from PIL import Image
 from datetime import timedelta
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,11 +12,9 @@ from starlette.responses import JSONResponse, StreamingResponse
 from iiif.exceptions import handler, IIIFServerException
 from iiif.routers import iiif, originals, simple
 from iiif.state import state
+from iiif.utils import disable_bomb_errors
 
-# disable DecompressionBombErrors
-# (https://pillow.readthedocs.io/en/latest/releasenotes/5.0.0.html#decompression-bombs-now-raise-exceptions)
-Image.MAX_IMAGE_PIXELS = None
-
+disable_bomb_errors()
 start_time = time.monotonic()
 app = FastAPI(title='Data Portal Image Service')
 app.add_middleware(
