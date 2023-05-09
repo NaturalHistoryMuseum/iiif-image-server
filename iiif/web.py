@@ -6,7 +6,6 @@ import platform
 import time
 from datetime import timedelta
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
 
 from iiif.exceptions import handler, IIIFServerException
@@ -17,14 +16,6 @@ from iiif.utils import disable_bomb_errors
 disable_bomb_errors()
 start_time = time.monotonic()
 app = FastAPI(title='Data Portal Image Service')
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=True,
-    allow_methods=['GET', 'OPTIONS'],
-    allow_headers=['*'],
-)
-
 
 @app.middleware('http')
 async def add_debug_headers(request: Request, call_next):
