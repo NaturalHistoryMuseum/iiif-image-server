@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
 import pytest
 from PIL import Image
-from dataclasses import dataclass
 from jpegtran import JPEGImage
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-from wand.exceptions import MissingDelegateError
 
-from iiif.utils import convert_image, generate_sizes, get_size, get_mimetype, parse_identifier, \
+from iiif.utils import convert_image, generate_sizes, get_size, get_mimetype, \
+    parse_identifier, \
     to_pillow, to_jpegtran, Locker, FetchCache, Fetchable
 from tests.utils import create_image, create_file
 
@@ -24,18 +24,9 @@ class TestConvertImage:
         target = tmp_path / 'converted'
         convert_image(image_path, target)
 
-        target_fallback = tmp_path / 'converted_fallback'
-        wand_mock = MagicMock(side_effect=MissingDelegateError())
-        with patch('iiif.utils.WandImage', wand_mock):
-            convert_image(image_path, target_fallback)
-
         assert target.exists()
-        assert target_fallback.exists()
         with Image.open(target) as converted_image:
             assert converted_image.format.lower() == 'jpeg'
-            with Image.open(target) as converted_fallback_image:
-                assert converted_fallback_image.format.lower() == 'jpeg'
-                assert converted_fallback_image == converted_image
 
     def test_jpeg_with_exif_orientation(self, tmp_path):
         image_path = tmp_path / 'image'
@@ -48,20 +39,10 @@ class TestConvertImage:
         target = tmp_path / 'converted'
         convert_image(image_path, target)
 
-        target_fallback = tmp_path / 'converted_fallback'
-        wand_mock = MagicMock(side_effect=MissingDelegateError())
-        with patch('iiif.utils.WandImage', wand_mock):
-            convert_image(image_path, target_fallback)
-
         assert target.exists()
-        assert target_fallback.exists()
         with Image.open(target) as converted_image:
             assert converted_image.format.lower() == 'jpeg'
             assert 0x0112 not in converted_image.getexif()
-            with Image.open(target) as converted_fallback_image:
-                assert converted_fallback_image.format.lower() == 'jpeg'
-                assert 0x0112 not in converted_fallback_image.getexif()
-                assert converted_fallback_image == converted_image
 
     def test_tiff(self, tmp_path):
         image_path = tmp_path / 'image'
@@ -71,18 +52,9 @@ class TestConvertImage:
         target = tmp_path / 'converted'
         convert_image(image_path, target)
 
-        target_fallback = tmp_path / 'converted_fallback'
-        wand_mock = MagicMock(side_effect=MissingDelegateError())
-        with patch('iiif.utils.WandImage', wand_mock):
-            convert_image(image_path, target_fallback)
-
         assert target.exists()
-        assert target_fallback.exists()
         with Image.open(target) as converted_image:
             assert converted_image.format.lower() == 'jpeg'
-            with Image.open(target) as converted_fallback_image:
-                assert converted_fallback_image.format.lower() == 'jpeg'
-                assert converted_fallback_image == converted_image
 
     def test_jpeg_options(self, tmp_path):
         image_path = tmp_path / 'image'
@@ -92,18 +64,9 @@ class TestConvertImage:
         target = tmp_path / 'converted'
         convert_image(image_path, target, quality=40, subsampling='4:2:2')
 
-        target_fallback = tmp_path / 'converted_fallback'
-        wand_mock = MagicMock(side_effect=MissingDelegateError())
-        with patch('iiif.utils.WandImage', wand_mock):
-            convert_image(image_path, target_fallback, quality=40, subsampling='4:2:2')
-
         assert target.exists()
-        assert target_fallback.exists()
         with Image.open(target) as converted_image:
             assert converted_image.format.lower() == 'jpeg'
-            with Image.open(target) as converted_fallback_image:
-                assert converted_fallback_image.format.lower() == 'jpeg'
-                assert converted_fallback_image == converted_image
 
 
 def test_generate_sizes():
