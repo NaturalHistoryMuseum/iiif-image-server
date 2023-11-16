@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from collections import OrderedDict, Counter
-
 import abc
-import aiohttp
 import asyncio
-import humanize
 import io
 import logging
 import mimetypes
-from PIL import Image
+from collections import OrderedDict, Counter
 from contextlib import suppress, asynccontextmanager
 from functools import lru_cache
 from itertools import count
-from jpegtran import JPEGImage
 from pathlib import Path
 from typing import Optional, Tuple, Union, Any
-from wand.exceptions import WandException
-from wand.image import Image as WandImage
+
+import aiohttp
+import humanize
+from PIL import Image
+from jpegtran import JPEGImage
 
 mimetypes.init()
 
@@ -120,33 +118,15 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
     """
     # given this is usually run in a separate process, make sure we have disabled bomb errors
     disable_bomb_errors()
-    try:
-        with WandImage(filename=str(image_path)) as image:
-            if image.format.lower() == 'jpeg':
-                # if it's a jpeg, remove the orientation exif tag. We do this because through trial
-                # and error it seems the dimensions provided by EMu are non-orientated and therefore
-                # we need to work on the images without their orientation too and serve them up
-                # without it otherwise things start to go awry
-                image.strip()
-            else:
-                image.format = 'jpeg'
+    with Image.open(image_path) as image:
+        if image.format.lower() == 'jpeg':
+            exif = image.getexif()
+            # this is the orientation tag, remove it if it's there
+            exif.pop(0x0112, None)
+            image.info['exif'] = exif.tobytes()
 
-            image.compression_quality = quality
-            image.options['jpeg:sampling-factor'] = subsampling
-
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            with target_path.open('wb') as f:
-                image.save(file=f)
-    except WandException:
-        with Image.open(image_path) as image:
-            if image.format.lower() == 'jpeg':
-                exif = image.getexif()
-                # this is the orientation tag, remove it if it's there
-                exif.pop(0x0112, None)
-                image.info['exif'] = exif.tobytes()
-
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
 
 
 def parse_identifier(identifier: str) -> Tuple[Optional[str], str]:
