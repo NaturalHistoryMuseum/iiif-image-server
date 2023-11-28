@@ -126,6 +126,7 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
             image.info['exif'] = exif.tobytes()
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
+        image = image.convert(mode='RGB')
         image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
 
 
