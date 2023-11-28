@@ -52,9 +52,8 @@ class OnDiskProfile(AbstractProfile):
         :param config: the config object
         :param pool: the general purpose pool for offloading processing if necessary
         :param rights: the rights definition for all images handled by this profile
-        :param cache_for: how long in seconds a client should cache the results from this profile
-                          (both info.json and image data)
-        :param cache_size: max size in bytes of the source cache on disk
+        :param cache_for: how long in seconds a client should cache the converted image
+        :param cache_size: max size in bytes of the converted image cache on disk
         :param convert_quality: quality to use when converting a source to a jpeg
         :param convert_subsampling: subsampling value to use when converting a source to a jpeg
         :param kwargs: extra kwargs for the AbstractProfile base class __init__

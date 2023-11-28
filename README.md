@@ -101,7 +101,12 @@ The names of the files must match the name part of the identifier, i.e. a reques
 fail if it is not found.
 
 #### Options
-There are no additional `disk` specific options.
+| Name                  | Description                                         | Default     |
+|-----------------------|-----------------------------------------------------|-------------|
+| `cache_for`           | How long (in seconds) to cache converted images for | `60`        |
+| `cache_size`          | Max size (in bytes) of the converted image cache    | `268435456` |
+| `convert_quality`     | JPEG quality of the converted image                 | `85`        |
+| `convert_subsampling` | subsampling value to use when converting to JPEG    | `4:2:0`     |
 
 ### mss
 This profile type is only usable by internal NHM systems on the Data Portal (and hence
