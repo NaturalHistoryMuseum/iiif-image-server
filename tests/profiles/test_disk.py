@@ -1,7 +1,8 @@
-from unittest.mock import MagicMock
-
 import math
+from concurrent.futures import ProcessPoolExecutor
+
 import pytest
+from unittest.mock import MagicMock
 
 from iiif.profiles.base import ImageInfo
 from iiif.profiles.disk import OnDiskProfile, MissingFile
@@ -10,7 +11,14 @@ from tests.utils import create_image
 
 @pytest.fixture(scope='function')
 def disk_profile(config):
-    return OnDiskProfile('test', config, MagicMock(), 'http://creativecommons.org/licenses/by/4.0/')
+    return OnDiskProfile('test', config, MagicMock(),
+                         'http://creativecommons.org/licenses/by/4.0/')
+
+
+@pytest.fixture(scope='function')
+def disk_profile_with_pool(config):
+    return OnDiskProfile('test', config, ProcessPoolExecutor(max_workers=1),
+                         'http://creativecommons.org/licenses/by/4.0/')
 
 
 class TestOnDiskProfile:
@@ -43,6 +51,18 @@ class TestOnDiskProfile:
         # target size doesn't matter for on disk images
         async with disk_profile.use_source(info, (50, 50)) as source_path:
             assert source_path == disk_profile.source_path / 'image'
+
+    @pytest.mark.parametrize('img_format,img_mode',
+                             [('tiff', 'RGB'), ('tiff', 'RGBA'), ('png', 'RGB')])
+    async def test_use_source_converts_non_jpeg_file(self, config,
+                                                     disk_profile_with_pool, img_format,
+                                                     img_mode):
+        img_name = f'image_{img_mode}.{img_format}'
+        info = ImageInfo('test', img_name, 100, 100)
+        create_image(config, 100, 100, 'test', img_name, img_format, img_mode)
+        async with disk_profile_with_pool.use_source(info) as source_path:
+            assert source_path == disk_profile_with_pool.cache_path / 'jpeg' / (
+                img_name + '.jpg')
 
     async def test_resolve_filename_no_file(self, config, disk_profile):
         create_image(config, 100, 100, 'test', 'image')

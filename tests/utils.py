@@ -8,7 +8,7 @@ from iiif.config import Config
 
 
 def create_image(config: Config, width: int, height: int, profile: str = 'test',
-                 name: str = 'image') -> Path:
+                 name: str = 'image', img_format='jpeg', mode='RGB') -> Path:
     """
     Create a real image file for testing and returns the path to it.
 
@@ -17,12 +17,15 @@ def create_image(config: Config, width: int, height: int, profile: str = 'test',
     :param height: the height of the image to create
     :param profile: the profile name
     :param name: the image name
+    :param img_format: the image format
+    :param mode: the image mode (e.g. RGB or RGBA); will be set to RGB if format is jpeg
     :return: the path to the image
     """
     path = config.source_path / profile / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    img = Image.new('RGB', (width, height), color='red')
-    img.save(path, format='jpeg')
+    mode = 'RGB' if img_format == 'jpeg' else mode
+    img = Image.new(mode, (width, height), color='red')
+    img.save(path, format=img_format)
     return path
 
 
