@@ -165,9 +165,9 @@ class OnDiskSourceFile(Fetchable):
 
     @property
     def store_path(self) -> Path:
-        suffixes = self.original_file.suffixes + ['.jpg']
-        return self.original_file.with_suffix(''.join(suffixes))
-
+        filename = Path(self.name)
+        suffixes = filename.suffixes + ['.jpg']
+        return filename.with_suffix(''.join(suffixes))
 
 class OnDiskStore(FetchCache):
     def __init__(self, root: Path, pool: Executor, ttl: float, max_size: float,
