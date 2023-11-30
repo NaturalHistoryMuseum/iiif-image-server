@@ -2,7 +2,7 @@ from concurrent.futures import Executor
 
 import aiofiles
 import asyncio
-import imghdr
+import filetype
 import shutil
 import tempfile
 from contextlib import asynccontextmanager
@@ -85,8 +85,8 @@ class OnDiskProfile(AbstractProfile):
         :raises: HTTPException if the file is missing
         """
         source_file_path = self._get_source(info.name)
-        source_file_type = imghdr.what(source_file_path)
-        if source_file_type == 'jpeg':
+        source_file_type = filetype.guess(source_file_path)
+        if source_file_type.mime == 'image/jpeg':
             yield source_file_path
         else:
             source = OnDiskSourceFile(info.name, source_file_path)
