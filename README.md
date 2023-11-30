@@ -1,5 +1,5 @@
 # IIIF Image Server
-[![Actions](https://img.shields.io/github/workflow/status/NaturalHistoryMuseum/iiif-image-server/Tests?style=flat-square)](https://github.com/NaturalHistoryMuseum/iiif-image-server/actions)
+[![Actions](https://img.shields.io/github/actions/workflow/status/NaturalHistoryMuseum/iiif-image-server/main.yml?branch=main&style=flat-square)](https://github.com/NaturalHistoryMuseum/iiif-image-server/actions)
 [![Coveralls](https://img.shields.io/coveralls/github/NaturalHistoryMuseum/iiif-image-server/main.svg?style=flat-square)](https://coveralls.io/github/NaturalHistoryMuseum/iiif-image-server)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 
