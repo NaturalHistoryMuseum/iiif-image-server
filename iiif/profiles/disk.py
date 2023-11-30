@@ -145,6 +145,11 @@ class OnDiskProfile(AbstractProfile):
                     break
                 yield chunk
 
+    async def get_status(self) -> dict:
+        status = await super().get_status()
+        status['source_cache'] = await self.store.get_status()
+        return status
+
 
 @dataclass
 class OnDiskSourceFile(Fetchable):
