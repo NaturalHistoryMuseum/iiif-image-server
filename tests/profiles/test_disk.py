@@ -90,3 +90,9 @@ class TestOnDiskProfile:
         assert count == expected_count
         with path.open('rb') as f:
             assert f.read() == data
+
+    async def test_get_original_size(self, config, disk_profile):
+        path = create_image(config, 10000, 10000, 'test', 'image')
+        size = path.stat().st_size
+        profile_size = await disk_profile.resolve_original_size('image')
+        assert size == profile_size
