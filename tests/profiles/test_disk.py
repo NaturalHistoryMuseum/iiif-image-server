@@ -60,8 +60,8 @@ class TestOnDiskProfile:
         img_name = f'image_{img_mode}.{img_format}'
         info = ImageInfo('test', img_name, 100, 100)
         create_image(config, 100, 100, 'test', img_name, img_format, img_mode)
-        async with disk_profile_with_pool.use_source(info) as source_path:
-            assert source_path == disk_profile_with_pool.cache_path / 'jpeg' / (
+        async with disk_profile_with_pool.use_source(info) as converted_path:
+            assert converted_path == disk_profile_with_pool.cache_path / 'jpeg' / (
                 img_name + '.jpg')
 
     async def test_resolve_filename_no_file(self, config, disk_profile):
@@ -96,3 +96,13 @@ class TestOnDiskProfile:
         size = path.stat().st_size
         profile_size = await disk_profile.resolve_original_size('image')
         assert size == profile_size
+
+    async def test_get_status(self, config, disk_profile_with_pool):
+        img_name = 'image.tiff'
+        info = ImageInfo('test', img_name, 100, 100)
+        create_image(config, 100, 100, 'test', img_name, 'tiff')
+        async with disk_profile_with_pool.use_source(info) as converted_path:
+            size = converted_path.stat().st_size
+        status = await disk_profile_with_pool.get_status()
+        assert 'converted_cache' in status
+        assert status['converted_cache']['cache_size'] == f'{size} Bytes'
