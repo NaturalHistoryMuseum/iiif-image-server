@@ -25,9 +25,9 @@ class MissingFile(ImageNotFound):
 
 
 class OnDiskConversionFailure(IIIFServerException):
-    def __init__(self, fetchable: 'Fetchable', cause: Exception):
+    def __init__(self, converted_file: 'OnDiskConvertedFile', cause: Exception):
         super().__init__(f'Failed to convert source image',
-                         log=f'Failed to convert {fetchable.public_name} due to {cause}',
+                         log=f'Failed to convert {converted_file.public_name} due to {cause}',
                          cause=cause)
 
 
@@ -90,7 +90,7 @@ class OnDiskProfile(AbstractProfile):
         if source_file_type.mime == 'image/jpeg':
             yield source_file_path
         else:
-            source = OnDiskSourceFile(info.name, source_file_path)
+            source = OnDiskConvertedFile(info.name, source_file_path)
             async with self.store.use(source) as path:
                 yield path
 
@@ -148,12 +148,12 @@ class OnDiskProfile(AbstractProfile):
 
     async def get_status(self) -> dict:
         status = await super().get_status()
-        status['source_cache'] = await self.store.get_status()
+        status['converted_cache'] = await self.store.get_status()
         return status
 
 
 @dataclass
-class OnDiskSourceFile(Fetchable):
+class OnDiskConvertedFile(Fetchable):
     """
     Fetchable subclass representing an image on disk.
     """
@@ -169,6 +169,7 @@ class OnDiskSourceFile(Fetchable):
         filename = Path(self.name)
         suffixes = filename.suffixes + ['.jpg']
         return filename.with_suffix(''.join(suffixes))
+
 
 class OnDiskStore(FetchCache):
     def __init__(self, root: Path, pool: Executor, ttl: float, max_size: float,
@@ -188,7 +189,7 @@ class OnDiskStore(FetchCache):
         self.pool = pool
         self._convert = partial(convert_image, quality=quality, subsampling=subsampling)
 
-    async def _fetch(self, disk_source: OnDiskSourceFile):
+    async def _fetch(self, disk_source: OnDiskConvertedFile):
         # convert the image file, saving the data in a temp file but then moving it
         # to the source_path after the conversion is complete
         with tempfile.NamedTemporaryFile(delete=False) as g:

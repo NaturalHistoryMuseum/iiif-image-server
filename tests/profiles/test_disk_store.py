@@ -6,7 +6,7 @@ from PIL import Image
 from pathlib import Path
 from unittest.mock import patch
 
-from iiif.profiles.disk import OnDiskStore, OnDiskSourceFile, OnDiskConversionFailure
+from iiif.profiles.disk import OnDiskStore, OnDiskConvertedFile, OnDiskConversionFailure
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ async def test_use_converts_image(source_root: Path, cache_root: Path, pool: Exe
     img = Image.new('RGB', (100, 100), color='red')
     img.save(img_path, format='tiff')
 
-    source = OnDiskSourceFile(img_name, img_path)
+    source = OnDiskConvertedFile(img_name, img_path)
     async with store.use(source) as converted_path:
         assert converted_path.exists()
         with Image.open(converted_path) as image:
@@ -57,7 +57,7 @@ async def test_use_convert_error_raises_conversion_error(source_root: Path,
     img = Image.new('RGB', (100, 100), color='red')
     img.save(img_path, format='tiff')
 
-    source = OnDiskSourceFile(img_name, img_path)
+    source = OnDiskConvertedFile(img_name, img_path)
     with pytest.raises(OnDiskConversionFailure) as exc_info:
         async with store.use(source):
             pass
