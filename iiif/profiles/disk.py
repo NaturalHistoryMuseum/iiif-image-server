@@ -27,7 +27,8 @@ class MissingFile(ImageNotFound):
 class OnDiskConversionFailure(IIIFServerException):
     def __init__(self, fetchable: 'Fetchable', cause: Exception):
         super().__init__(f'Failed to convert source image',
-                         log=f'Failed to convert {fetchable.public_name} due to {cause}')
+                         log=f'Failed to convert {fetchable.public_name} due to {cause}',
+                         cause=cause)
 
 
 class OnDiskProfile(AbstractProfile):

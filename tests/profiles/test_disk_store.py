@@ -1,10 +1,10 @@
 from concurrent.futures import Executor, ProcessPoolExecutor
 
+import os
 import pytest
 from PIL import Image
 from pathlib import Path
-import os
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from iiif.profiles.disk import OnDiskStore, OnDiskSourceFile, OnDiskConversionFailure
 
@@ -40,8 +40,15 @@ async def test_use_converts_image(source_root: Path, cache_root: Path, pool: Exe
             assert image.format.lower() == 'jpeg'
 
 
-@patch('iiif.utils.convert_image', return_value=Mock(side_effect=Exception('Oh no')))
-async def test_use_convert_error_raises_conversion_error(mock_convert, source_root: Path, cache_root: Path, pool: Executor):
+def convert_image(*args, **kwargs):
+    # we have to patch with this instead of a Mock because Mocks aren't pickleable
+    raise Exception('Oh no')
+
+
+@patch('iiif.profiles.disk.convert_image', new=convert_image)
+async def test_use_convert_error_raises_conversion_error(source_root: Path,
+                                                         cache_root: Path,
+                                                         pool: Executor):
     os.mkdir(source_root)
     store = OnDiskStore(cache_root, pool, 10, 10)
 
@@ -51,6 +58,7 @@ async def test_use_convert_error_raises_conversion_error(mock_convert, source_ro
     img.save(img_path, format='tiff')
 
     source = OnDiskSourceFile(img_name, img_path)
-    with pytest.raises(OnDiskConversionFailure):
+    with pytest.raises(OnDiskConversionFailure) as exc_info:
         async with store.use(source):
             pass
+    assert exc_info.value.cause.args[0] == 'Oh no'
