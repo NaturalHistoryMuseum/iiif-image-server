@@ -1,3 +1,15 @@
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool]
+[tool.commitizen]
+name = "cz_nhm"
+version = "0.15.0"
+tag_format = "v$version"
+update_changelog_on_bump = true
+changelog_incremental = true
+version_files = [
+    "setup.cfg:version",
+    "pyproject.toml:version",
+]
