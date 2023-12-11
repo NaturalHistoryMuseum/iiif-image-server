@@ -1,10 +1,19 @@
+from concurrent.futures import Executor
+
 import aiofiles
+import asyncio
+import filetype
+import shutil
+import tempfile
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
-from iiif.exceptions import ImageNotFound
+from iiif.config import Config
+from iiif.exceptions import ImageNotFound, IIIFServerException
 from iiif.profiles.base import AbstractProfile, ImageInfo
-from iiif.utils import get_size
+from iiif.utils import get_size, FetchCache, Fetchable, convert_image
 
 
 class MissingFile(ImageNotFound):
@@ -15,11 +24,44 @@ class MissingFile(ImageNotFound):
         self.source = source
 
 
+class OnDiskConversionFailure(IIIFServerException):
+    def __init__(self, converted_file: 'OnDiskConvertedFile', cause: Exception):
+        super().__init__(f'Failed to convert source image',
+                         log=f'Failed to convert {converted_file.public_name} due to {cause}',
+                         cause=cause)
+
+
 class OnDiskProfile(AbstractProfile):
     """
     A profile representing source files that are already on disk and don't need to be fetched from
     an external source.
     """
+
+    def __init__(self,
+                 name: str,
+                 config: Config,
+                 pool: Executor,
+                 rights: str,
+                 cache_for: float = 60,
+                 cache_size: int = 1024 * 1024 * 256,
+                 convert_quality: int = 85,
+                 convert_subsampling: str = '4:2:0',
+                 **kwargs
+                 ):
+        """
+        :param name: the name of the profile, should be unique across profiles
+        :param config: the config object
+        :param pool: the general purpose pool for offloading processing if necessary
+        :param rights: the rights definition for all images handled by this profile
+        :param cache_for: how long in seconds a client should cache the converted image
+        :param cache_size: max size in bytes of the converted image cache on disk
+        :param convert_quality: quality to use when converting a source to a jpeg
+        :param convert_subsampling: subsampling value to use when converting a source to a jpeg
+        :param kwargs: extra kwargs for the AbstractProfile base class __init__
+        """
+        super().__init__(name, config, pool, rights, cache_for, **kwargs)
+        self.store = OnDiskStore(self.cache_path / 'jpeg', pool, cache_for, cache_size,
+                                 convert_quality, convert_subsampling)
 
     async def get_info(self, name: str) -> ImageInfo:
         """
@@ -43,7 +85,14 @@ class OnDiskProfile(AbstractProfile):
         :return: the path to the source image on disk
         :raises: HTTPException if the file is missing
         """
-        yield self._get_source(info.name)
+        source_file_path = self._get_source(info.name)
+        source_file_type = filetype.guess(source_file_path)
+        if source_file_type.mime == 'image/jpeg':
+            yield source_file_path
+        else:
+            source = OnDiskConvertedFile(info.name, source_file_path)
+            async with self.store.use(source) as path:
+                yield path
 
     def _get_source(self, name: str) -> Path:
         """
@@ -96,3 +145,62 @@ class OnDiskProfile(AbstractProfile):
                 if not chunk:
                     break
                 yield chunk
+
+    async def get_status(self) -> dict:
+        status = await super().get_status()
+        status['converted_cache'] = await self.store.get_status()
+        return status
+
+
+@dataclass
+class OnDiskConvertedFile(Fetchable):
+    """
+    Fetchable subclass representing an image on disk.
+    """
+    name: str
+    original_file: Path
+
+    @property
+    def public_name(self) -> str:
+        return str(self.name)
+
+    @property
+    def store_path(self) -> Path:
+        filename = Path(self.name)
+        suffixes = filename.suffixes + ['.jpg']
+        return filename.with_suffix(''.join(suffixes))
+
+
+class OnDiskStore(FetchCache):
+    def __init__(self, root: Path, pool: Executor, ttl: float, max_size: float,
+                 quality: int = 85, subsampling: str = '4:2:0'):
+        """
+        Note that this init will automatically call self.load() and therefore populate the cache.
+        This could take time if the cache is enormous.
+
+        :param root: the root under which all data will be stored
+        :param pool: the general purpose pool for offloading processing if necessary
+        :param ttl: how long untouched files can stay in the cache before being removed
+        :param max_size: the maximum number of bytes that can be stored in the cache
+        :param quality: jpeg quality of converted source files
+        :param subsampling: jpeg subsampling value of converted source files
+        """
+        super().__init__(root, ttl, max_size)
+        self.pool = pool
+        self._convert = partial(convert_image, quality=quality, subsampling=subsampling)
+
+    async def _fetch(self, disk_source: OnDiskConvertedFile):
+        # convert the image file, saving the data in a temp file but then moving it
+        # to the source_path after the conversion is complete
+        with tempfile.NamedTemporaryFile(delete=False) as g:
+            target_path = Path(g.name)
+
+            convert = partial(self._convert, disk_source.original_file, target_path)
+            try:
+                await asyncio.get_running_loop().run_in_executor(self.pool, convert)
+            except Exception as cause:
+                raise OnDiskConversionFailure(disk_source, cause)
+
+            cache_path = self.root / disk_source.store_path
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(target_path, cache_path)
