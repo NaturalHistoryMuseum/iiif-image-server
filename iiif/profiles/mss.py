@@ -205,7 +205,7 @@ class MSSProfile(AbstractProfile):
                         cause=cause, level=logging.ERROR
                     )
                     raise e from cause
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as cause:
             raise Timeout(cause=cause, log=f'Timeout while waiting for get_info lock on {name} in '
                                            f'profile {self.name}')
 
@@ -279,7 +279,7 @@ class MSSProfile(AbstractProfile):
                 except Exception as cause:
                     e = ImageNotFound(self.name, name, cause=cause, level=logging.ERROR)
                     raise e from cause
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as cause:
             raise Timeout(cause=cause, log=f'Timeout while waiting for get_mss_doc lock on {name} '
                                            f'in profile {self.name}')
 
