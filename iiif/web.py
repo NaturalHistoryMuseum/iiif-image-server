@@ -99,6 +99,6 @@ app.add_exception_handler(IIIFServerException, handler)
 
 # order matters here btw!
 app.include_router(originals.router)
-app.include_router(simple.router)
 app.include_router(mam.router)
+app.include_router(simple.router)
 app.include_router(iiif.router)
