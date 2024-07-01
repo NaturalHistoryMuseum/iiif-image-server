@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse, StreamingResponse
 
 from iiif.exceptions import handler, IIIFServerException
-from iiif.routers import iiif, originals, simple
+from iiif.routers import iiif, originals, simple, mam
 from iiif.state import state
 from iiif.utils import disable_bomb_errors
 
@@ -87,5 +87,6 @@ app.add_exception_handler(IIIFServerException, handler)
 
 # order matters here btw!
 app.include_router(originals.router)
+app.include_router(mam.router)
 app.include_router(simple.router)
 app.include_router(iiif.router)

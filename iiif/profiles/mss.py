@@ -55,6 +55,20 @@ class MSSStoreFailure(IIIFServerException):
                              f'{cause.url} due to {cause.cause}')
 
 
+class AssetIDNotFound(IIIFServerException):
+
+    def __init__(self, asset_id: str):
+        super().__init__(f"Asset ID {asset_id} not found", status_code=404)
+
+
+class AssetIDDuplicateGUIDs(IIIFServerException):
+
+    def __init__(self, asset_id: str, total: int):
+        super().__init__(f"Asset ID {asset_id} matched multiple images", status_code=404,
+                         log=f"Asset ID {asset_id} matched multiple {total} GUIDs")
+        self.total = total
+
+
 class MSSStoreNoLength(IIIFServerException):
 
     def __init__(self, profile: str, name: str):
@@ -84,6 +98,8 @@ class MSSImageInfo(ImageInfo):
         self.emu_irn = doc['id']
         # the name of the original file as it appears on the actual filesystem EMu is using
         self.original = doc['file']
+        # the old MAM asset ID value, if there is one
+        self.old_asset_id = doc.get('old_asset_id')
         # a list of the EMu generated derivatives of the original file. The list should already be
         # in the ascending (width, height) order because the import process sorts it
         self.derivatives = doc.get('derivatives', [])
@@ -335,6 +351,20 @@ class MSSProfile(AbstractProfile):
             log_error(e)
             raise e
 
+    async def convert_guid_to_asset_id(self, asset_id: str) -> str:
+        """
+        Given an old MAM asset ID, see if we can convert it into a GUID.
+
+        :param asset_id: the old MAM asset ID
+        :return: the matching GUID
+        """
+        total, guid = await self.es_handler.lookup_guid(asset_id)
+        if total == 0:
+            raise AssetIDNotFound(asset_id)
+        elif total > 1:
+            raise AssetIDDuplicateGUIDs(asset_id, total)
+        return guid
+
     async def close(self):
         """
         Close down this profile.
@@ -375,11 +405,29 @@ class MSSElasticsearchHandler:
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
         search = Search().filter('term', **{'guid.keyword': guid}).extra(size=1)
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
-            text = await response.text(encoding='utf-8')
-            result = json.loads(text)
+            result = await response.json(encoding='utf-8')
             total = result['hits']['total']
             first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
             return total, first_doc
+
+    async def lookup_guid(self, asset_id: str) -> Tuple[int, Optional[str]]:
+        """
+        Given an old MAM asset ID, lookup the associated GUID.
+
+        :param asset_id: the old MAM asset ID
+        :return: the total hits and the GUID (or None if there are no hits)
+        """
+        search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
+        search = Search().filter('term', **{'old_asset_id.keyword': asset_id}).extra(size=1)
+        async with self.es_session.post(search_url, json=search.to_dict()) as response:
+            result = await response.json(encoding='utf-8')
+            total = result['hits']['total']
+            first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
+            if first_doc:
+                guid = first_doc['guid']
+            else:
+                guid = None
+            return total, guid
 
     async def get_status(self) -> dict:
         """
