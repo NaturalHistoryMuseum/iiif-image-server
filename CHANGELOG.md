@@ -1,3 +1,9 @@
+## v0.16.1 (2024-07-01)
+
+### Fix
+
+- define cause variable before using it in exception
+
 ## v0.16.0 (2023-12-11)
 
 ### Feature
