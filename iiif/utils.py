@@ -14,7 +14,7 @@ from typing import Optional, Tuple, Union, Any
 
 import aiohttp
 import humanize
-from PIL import Image
+from PIL import Image, ImageOps
 from jpegtran import JPEGImage
 
 mimetypes.init()
@@ -119,13 +119,8 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
     # given this is usually run in a separate process, make sure we have disabled bomb errors
     disable_bomb_errors()
     with Image.open(image_path) as image:
-        if image.format.lower() == 'jpeg':
-            exif = image.getexif()
-            # this is the orientation tag, remove it if it's there
-            exif.pop(0x0112, None)
-            image.info['exif'] = exif.tobytes()
-
         target_path.parent.mkdir(parents=True, exist_ok=True)
+        image = ImageOps.exif_transpose(image)
         image = image.convert(mode='RGB')
         image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
 
