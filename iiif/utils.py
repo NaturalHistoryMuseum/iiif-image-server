@@ -120,8 +120,10 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
     disable_bomb_errors()
     with Image.open(image_path) as image:
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        image = ImageOps.exif_transpose(image)
+        # do this before exif_transpose to ensure tiffs get loaded and oriented before
+        # we auto-orient based on exif
         image = image.convert(mode='RGB')
+        image = ImageOps.exif_transpose(image)
         image.save(target_path, format='jpeg', quality=quality, subsampling=subsampling)
 
 
