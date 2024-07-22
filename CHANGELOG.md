@@ -1,3 +1,10 @@
+## v0.16.2 (2024-07-22)
+
+### Fix
+
+- make sure the image is loaded before rotating it based on exif
+- rotate images on source acquisition
+
 ## v0.16.1 (2024-07-01)
 
 ### Fix
