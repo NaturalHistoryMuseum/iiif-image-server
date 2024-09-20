@@ -131,7 +131,7 @@ class MSSProfile(AbstractProfile):
                  es_hosts: List[str],
                  mss_url: str,
                  mss_ssl: bool = True,
-                 mss_index: str = 'mss',
+                 mss_index: str = 'data-mss-latest',
                  mss_limit: int = 10,
                  es_limit: int = 10,
                  info_cache_size: int = 100_000,
@@ -384,7 +384,7 @@ class MSSElasticsearchHandler:
     Class that handles requests to Elasticsearch for the MSS profile.
     """
 
-    def __init__(self, es_hosts: List[str], limit: int = 20, mss_index: str = 'mss'):
+    def __init__(self, es_hosts: List[str], limit: int = 20, mss_index: str = 'data-mss-latest'):
         """
         :param es_hosts: a list of elasticsearch hosts to use
         :param limit: the maximum number of simultaneous connections that can be made to
@@ -403,11 +403,11 @@ class MSSElasticsearchHandler:
         :return: the total number of hits and the first hit's source
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'guid.keyword': guid}).extra(size=1)
+        search = Search().filter('term', **{'parsed.guid.^ks': guid}).extra(size=1, track_total_hits=True)
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
-            total = result['hits']['total']
-            first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
+            total = result['hits']['total']['value']
+            first_doc = next((doc['_source']['data'] for doc in result['hits']['hits']), None)
             return total, first_doc
 
     async def lookup_guid(self, asset_id: str) -> Tuple[int, Optional[str]]:
@@ -418,11 +418,11 @@ class MSSElasticsearchHandler:
         :return: the total hits and the GUID (or None if there are no hits)
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'old_asset_id.keyword': asset_id}).extra(size=1)
+        search = Search().filter('term', **{'parsed.old_asset_id.^ks': asset_id}).extra(size=1, track_total_hits=True)
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
-            total = result['hits']['total']
-            first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
+            total = result['hits']['total']['value']
+            first_doc = next((doc['_source']['data'] for doc in result['hits']['hits']), None)
             if first_doc:
                 guid = first_doc['guid']
             else:
