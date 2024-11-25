@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [tool]
 [tool.commitizen]
 name = "cz_nhm"
-version = "0.16.2"
+version = "0.16.3"
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_incremental = true
