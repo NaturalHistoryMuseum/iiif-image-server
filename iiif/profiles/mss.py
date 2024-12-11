@@ -81,6 +81,15 @@ class MSSConversionFailure(IIIFServerException):
         super().__init__(f'Failed to convert source image',
                          log=f'Failed to convert {source.file} ({source.emu_irn}) due to {cause}')
 
+# a set of EXIF orientation values (both raw numbers and textual representations) which,
+# if applied to an image, would cause the width and height to swap.
+EXIF_ORIENTATION_SWAP_VALUES = {
+    "5", "Mirror horizontal and rotate 270 CW",
+    "6", "Rotate 90 CW",
+    "7", "Mirror horizontal and rotate 90 CW",
+    "8", "Rotate 270 CW",
+}
+
 
 class MSSImageInfo(ImageInfo):
     """
@@ -103,6 +112,13 @@ class MSSImageInfo(ImageInfo):
         # a list of the EMu generated derivatives of the original file. The list should already be
         # in the ascending (width, height) order because the import process sorts it
         self.derivatives = doc.get('derivatives', [])
+        # exif orientation tag value
+        self.orientation = doc.get("orientation", None)
+        if self.orientation in EXIF_ORIENTATION_SWAP_VALUES:
+            # swap all widths and heights
+            self.width, self.height = self.height, self.width
+            for der in self.derivatives:
+                der["width"], der["height"] = der["height"], der["width"]
 
     def choose_file(self, target_size: Optional[Tuple[int, int]] = None) -> str:
         """
