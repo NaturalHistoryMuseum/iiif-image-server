@@ -7,7 +7,7 @@ import logging
 import shutil
 import tempfile
 import time
-from aiohttp import ClientResponse, ClientError
+from aiohttp import ClientResponse, ClientError, ClientTimeout
 from cachetools import TTLCache
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -438,7 +438,8 @@ class MSSElasticsearchHandler:
         try:
             health_url = f'{next(self.es_hosts)}/_cluster/health'
             start_time = time.monotonic()
-            async with self.es_session.get(health_url) as response:
+            async with self.es_session.get(health_url,
+                                           timeout=ClientTimeout(total=5)) as response:
                 return {
                     'status': (await response.json())['status'],
                     'response_time': time.monotonic() - start_time
@@ -639,7 +640,8 @@ class MSSSourceStore(FetchCache):
         status['error_breakdown'] = self.stream_errors
         try:
             start_time = time.monotonic()
-            async with self.mss_session.get('/nhmlive/status') as response:
+            async with self.mss_session.get('/nhmlive/status',
+                                            timeout=ClientTimeout(total=5)) as response:
                 status['mss_status'] = {
                     **(await response.json()),
                     'response_time': time.monotonic() - start_time,

@@ -1,3 +1,9 @@
+## v0.16.3 (2024-11-25)
+
+### Fix
+
+- decrease total response timeout to 5s for mss status check
+
 ## v0.16.2 (2024-07-22)
 
 ### Fix
