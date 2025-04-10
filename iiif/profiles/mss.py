@@ -403,7 +403,7 @@ class MSSElasticsearchHandler:
         :return: the total number of hits and the first hit's source
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'parsed.guid.^ks': guid}).extra(size=1, track_total_hits=True)
+        search = Search().filter('term', **{'data.guid._k': guid}).extra(size=1, track_total_hits=True)
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
             total = result['hits']['total']['value']
@@ -418,7 +418,7 @@ class MSSElasticsearchHandler:
         :return: the total hits and the GUID (or None if there are no hits)
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'parsed.old_asset_id.^ks': asset_id}).extra(size=1, track_total_hits=True)
+        search = Search().filter('term', **{'data.old_asset_id._ks': asset_id}).extra(size=1, track_total_hits=True)
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
             total = result['hits']['total']['value']
