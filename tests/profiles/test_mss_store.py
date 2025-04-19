@@ -27,7 +27,7 @@ async def test_check_access_ok(source_root: Path, pool: Executor):
     emu_irn = 12345
     try:
         with aioresponses() as m:
-            m.get(MSSSourceFile.check_url(emu_irn), status=204)
+            m.get(f"{MOCK_HOST}{MSSSourceFile.check_url(emu_irn)}", status=204)
             assert await store.check_access(emu_irn)
     finally:
         await store.close()
@@ -38,7 +38,7 @@ async def test_check_access_failed(source_root: Path, pool: Executor):
     emu_irn = 12345
     try:
         with aioresponses() as m:
-            m.get(MSSSourceFile.check_url(emu_irn), status=401)
+            m.get(f"{MOCK_HOST}{MSSSourceFile.check_url(emu_irn)}", status=401)
             assert not await store.check_access(emu_irn)
     finally:
         await store.close()
@@ -53,7 +53,7 @@ async def test_stream(source_root: Path, pool: Executor):
     try:
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, False, chunk_size=chunk_size)
-            m.get(source.url, body=content)
+            m.get(f"{MOCK_HOST}{source.url}", body=content)
             buffer = BytesIO()
             async for chunk in store.stream(source):
                 buffer.write(chunk)
@@ -71,7 +71,7 @@ async def test_stream_access_denied(source_root, pool: Executor):
     try:
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, False)
-            m.get(source.url, status=401)
+            m.get(f"{MOCK_HOST}{source.url}", status=401)
             with pytest.raises(StoreStreamError) as exc_info:
                 async for chunk in store.stream(source):
                     pass
@@ -91,8 +91,8 @@ async def test_stream_missing(source_root, pool: Executor):
     try:
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, False)
-            m.get(source.url, status=404)
-            m.get(source.dams_url, status=404)
+            m.get(f"{MOCK_HOST}{source.url}", status=404)
+            m.get(f"{MOCK_HOST}{source.dams_url}", status=404)
             with pytest.raises(StoreStreamError) as exc_info:
                 async for chunk in store.stream(source):
                     pass
@@ -116,8 +116,8 @@ async def test_stream_use_dams(source_root: Path, pool: Executor):
     try:
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, True, chunk_size=chunk_size)
-            m.get(source.url, status=404)
-            m.get(source.dams_url, body=dams_url)
+            m.get(f"{MOCK_HOST}{source.url}", status=404)
+            m.get(f"{MOCK_HOST}{source.dams_url}", body=dams_url)
             m.get(dams_url, body=content)
 
             buffer = BytesIO()
@@ -138,8 +138,8 @@ async def test_stream_dams_fails(source_root: Path, pool: Executor):
     try:
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, True)
-            m.get(source.url, status=404)
-            m.get(source.dams_url, body=dams_url)
+            m.get(f"{MOCK_HOST}{source.url}", status=404)
+            m.get(f"{MOCK_HOST}{source.dams_url}", body=dams_url)
             m.get(dams_url, status=404)
 
             with pytest.raises(StoreStreamError) as exc_info:
@@ -166,7 +166,7 @@ async def test_use(source_root: Path, pool: Executor):
     try:
         with aioresponses() as m:
             source = MSSSourceFile(emu_irn, file, False)
-            m.get(source.url, body=buffer.getvalue())
+            m.get(f"{MOCK_HOST}{source.url}", body=buffer.getvalue())
             async with store.use(source) as path:
                 assert path.exists()
                 with Image.open(path) as image:
@@ -183,7 +183,7 @@ async def test_get_file_size(source_root: Path, pool: Executor):
 
     with aioresponses() as m:
         source = MSSSourceFile(emu_irn, file, False)
-        m.get(source.url, headers={'content-length': str(content_length)})
+        m.get(f"{MOCK_HOST}{source.url}", headers={'content-length': str(content_length)})
         assert await store.get_file_size(source) == content_length
 
 
@@ -194,6 +194,6 @@ async def test_get_file_size_fail(source_root: Path, pool: Executor):
 
     with aioresponses() as m:
         source = MSSSourceFile(emu_irn, file, False)
-        m.get(source.url, headers={})
+        m.get(f"{MOCK_HOST}{source.url}", headers={})
         with pytest.raises(StoreStreamNoLength):
             assert await store.get_file_size(source)
