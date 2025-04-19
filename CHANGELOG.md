@@ -1,3 +1,28 @@
+## v1.0.0 (2025-04-19)
+
+### Breaking Changes
+
+- unpack splitgill encoded data
+- MSS compaibility with vds and splitgill updates
+
+### Feature
+
+- unpack splitgill encoded data
+- MSS compaibility with vds and splitgill updates
+
+### Fix
+
+- alter search to work with new splitgill version
+
+### Tests
+
+- fix tests
+- fix tests with newer versions of pytest / pytest-asyncio
+
+### Chores/Misc
+
+- add .venv path to gitignore
+
 ## v0.16.3 (2024-11-25)
 
 ### Fix
