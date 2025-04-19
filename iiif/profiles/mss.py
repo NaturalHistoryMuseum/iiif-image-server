@@ -15,7 +15,7 @@ from elasticsearch_dsl import Search
 from functools import partial
 from itertools import cycle
 from pathlib import Path
-from typing import List
+from typing import List, Union
 from typing import Tuple, Optional
 from urllib.parse import quote
 
@@ -131,7 +131,7 @@ class MSSProfile(AbstractProfile):
                  es_hosts: List[str],
                  mss_url: str,
                  mss_ssl: bool = True,
-                 mss_index: str = 'mss',
+                 mss_index: str = 'data-mss-latest',
                  mss_limit: int = 10,
                  es_limit: int = 10,
                  info_cache_size: int = 100_000,
@@ -379,12 +379,56 @@ class MSSProfile(AbstractProfile):
         return status
 
 
+def rebuild_data(parsed_data: dict) -> dict:
+    """
+    Rebuild the original data that Splitgill has encoded in Elasticsearch.
+
+    :param parsed_data: the parsed dict
+    :return: the rebuilt data dict
+    """
+    # this doesn't need _ checks because you can't currently have parsed types at the
+    # root level of the data dict
+    return {key: rebuild_dict_or_list(value) for key, value in parsed_data.items()}
+
+
+def rebuild_dict_or_list(
+    value: Union[dict, list]
+) -> Union[int, str, bool, float, dict, list, None]:
+    """
+    Rebuild a dict or a list inside the parsed dict.
+
+    :param value: a dict which can either be for structure or a value, or a list of
+                  either value or structure dicts
+    :return: a dict, list, or value
+    """
+    if isinstance(value, dict):
+        if "_u" in value:
+            # this is a value dict, return the original value
+            return value["_u"]
+        else:
+            # this is a structural dict, pass each value through this function but
+            # filter out fields that start with an underscore, unless they are the
+            # special _id field
+            return {
+                key: rebuild_dict_or_list(value)
+                for key, value in value.items()
+                if not key.startswith("_") or key == "_id"
+            }
+    elif isinstance(value, list):
+        # pass each element of the list through this function
+        return [rebuild_dict_or_list(element) for element in value]
+    else:
+        # failsafe: just return the value. This should only really happen with lists
+        # containing Nones (which is technically allowed)
+        return value
+
+
 class MSSElasticsearchHandler:
     """
     Class that handles requests to Elasticsearch for the MSS profile.
     """
 
-    def __init__(self, es_hosts: List[str], limit: int = 20, mss_index: str = 'mss'):
+    def __init__(self, es_hosts: List[str], limit: int = 20, mss_index: str = 'data-mss-latest'):
         """
         :param es_hosts: a list of elasticsearch hosts to use
         :param limit: the maximum number of simultaneous connections that can be made to
@@ -403,11 +447,13 @@ class MSSElasticsearchHandler:
         :return: the total number of hits and the first hit's source
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'guid.keyword': guid}).extra(size=1)
+        search = Search().filter('term', **{'data.guid._k': guid}).extra(size=1, track_total_hits=True)
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
-            total = result['hits']['total']
-            first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
+            total = result['hits']['total']['value']
+            first_doc = next((doc['_source']['data'] for doc in result['hits']['hits']), None)
+            if first_doc:
+                first_doc = rebuild_data(first_doc)
             return total, first_doc
 
     async def lookup_guid(self, asset_id: str) -> Tuple[int, Optional[str]]:
@@ -418,13 +464,13 @@ class MSSElasticsearchHandler:
         :return: the total hits and the GUID (or None if there are no hits)
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'old_asset_id.keyword': asset_id}).extra(size=1)
+        search = Search().filter('term', **{'data.old_asset_id._k': asset_id}).extra(size=1, track_total_hits=True)
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
-            total = result['hits']['total']
-            first_doc = next((doc['_source'] for doc in result['hits']['hits']), None)
+            total = result['hits']['total']['value']
+            first_doc = next((doc['_source']['data'] for doc in result['hits']['hits']), None)
             if first_doc:
-                guid = first_doc['guid']
+                guid = first_doc['guid']['_u']
             else:
                 guid = None
             return total, guid
