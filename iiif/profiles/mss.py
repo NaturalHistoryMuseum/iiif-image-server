@@ -692,6 +692,11 @@ class MSSSourceStore(FetchCache):
                     **(await response.json()),
                     'response_time': time.monotonic() - start_time,
                 }
+        except asyncio.TimeoutError:
+            status['mss_status'] = {
+                'status': 'unreachable',
+                'error': 'Timed out',
+            }
         except Exception as e:
             status['mss_status'] = {
                 'status': 'unreachable',
