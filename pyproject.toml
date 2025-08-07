@@ -3,7 +3,7 @@ name = "iiif-image-server"
 version = "1.0.0"
 description = "A IIIF enabled media server primarily used by the NHM Data Portal"
 readme = "README.md"
-license = "GPL-3.0-or-later"
+license = { text = "GPL-3.0-or-later" }
 authors = [
     { name = "Natural History Museum", email = "data@nhm.ac.uk" },
 ]
