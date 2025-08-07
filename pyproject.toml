@@ -3,7 +3,7 @@ name = "iiif-image-server"
 version = "1.0.0"
 description = "A IIIF enabled media server primarily used by the NHM Data Portal"
 readme = "README.md"
-license-files = ["LICENSE"]
+license = "GPL-3.0-or-later"
 authors = [
     { name = "Natural History Museum", email = "data@nhm.ac.uk" },
 ]
@@ -14,7 +14,6 @@ keywords = [
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.8",
@@ -56,7 +55,7 @@ changelog = "https://github.com/NaturalHistoryMuseum/iiif-image-server/blob/main
 
 
 [build-system]
-requires = ["setuptools>=75.8.0", "wheel"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 
