@@ -1,12 +1,12 @@
-from concurrent.futures import Executor, ProcessPoolExecutor
-
 import os
-import pytest
-from PIL import Image
+from concurrent.futures import Executor, ProcessPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from iiif.profiles.disk import OnDiskStore, OnDiskConvertedFile, OnDiskConversionFailure
+import pytest
+from PIL import Image
+
+from iiif.profiles.disk import OnDiskConversionFailure, OnDiskConvertedFile, OnDiskStore
 
 
 @pytest.fixture
@@ -46,9 +46,9 @@ def convert_image(*args, **kwargs):
 
 
 @patch('iiif.profiles.disk.convert_image', new=convert_image)
-async def test_use_convert_error_raises_conversion_error(source_root: Path,
-                                                         cache_root: Path,
-                                                         pool: Executor):
+async def test_use_convert_error_raises_conversion_error(
+    source_root: Path, cache_root: Path, pool: Executor
+):
     os.mkdir(source_root)
     store = OnDiskStore(cache_root, pool, 10, 10)
 

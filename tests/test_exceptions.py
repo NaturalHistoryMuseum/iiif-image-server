@@ -1,10 +1,15 @@
-import logging
-
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
-from iiif.exceptions import ProfileNotFound, TooManyImages, ImageNotFound, InvalidIIIFParameter, \
-    handler, IIIFServerException
+from iiif.exceptions import (
+    IIIFServerException,
+    ImageNotFound,
+    InvalidIIIFParameter,
+    ProfileNotFound,
+    TooManyImages,
+    handler,
+)
 
 
 def test_profile_not_found():
@@ -29,7 +34,6 @@ def test_invalid_iiif_parameter():
 
 
 class TestExceptionHandler:
-
     @patch('iiif.exceptions.logger')
     async def test_no_log_use_public(self, mock_logger):
         exception = IIIFServerException('public message', use_public_as_log=True)
@@ -65,7 +69,9 @@ class TestExceptionHandler:
         exception = IIIFServerException('public message', cause=cause)
         response = await handler(MagicMock(), exception)
         assert json.loads(response.body)['error'] == exception.public
-        mock_logger.log.assert_called_with(exception.level, f'An error occurred: {cause}')
+        mock_logger.log.assert_called_with(
+            exception.level, f'An error occurred: {cause}'
+        )
 
     @patch('iiif.exceptions.logger')
     async def test_level(self, mock_logger):

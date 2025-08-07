@@ -1,5 +1,4 @@
 from concurrent.futures import Executor
-
 from copy import deepcopy
 from typing import Dict
 
@@ -16,7 +15,8 @@ registry = {
 
 def load_profiles(config: Config, pool: Executor) -> Dict[str, AbstractProfile]:
     """
-    Given the config object, create all the profiles that are defined within it and return them.
+    Given the config object, create all the profiles that are defined within it and
+    return them.
 
     :param config: the config object
     :param pool: pool for offloaded processing

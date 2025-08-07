@@ -5,17 +5,17 @@ import asyncio
 import io
 import logging
 import mimetypes
-from collections import OrderedDict, Counter
-from contextlib import suppress, asynccontextmanager
+from collections import Counter, OrderedDict
+from contextlib import asynccontextmanager, suppress
 from functools import lru_cache
 from itertools import count
 from pathlib import Path
-from typing import Optional, Tuple, Union, Any
+from typing import Any, Optional, Tuple, Union
 
 import aiohttp
 import humanize
-from PIL import Image, ImageOps
 from jpegtran import JPEGImage
+from PIL import Image, ImageOps
 
 mimetypes.init()
 
@@ -82,8 +82,8 @@ def get_size(path: Path) -> Tuple[int, int]:
 @lru_cache(maxsize=65536)
 def generate_sizes(width: int, height: int, minimum_size: int = 200):
     """
-    Produces the sizes array for the given width and height combination. Function results are
-    cached.
+    Produces the sizes array for the given width and height combination. Function
+    results are cached.
 
     :param width: the width of the source image
     :param height: the height of the source image
@@ -93,7 +93,7 @@ def generate_sizes(width: int, height: int, minimum_size: int = 200):
     # always include the original image size in the sizes list
     sizes = [{'width': width, 'height': height}]
     for i in count(1):
-        factor = 2 ** i
+        factor = 2**i
         new_width = width // factor
         new_height = height // factor
         # stop when either dimension is smaller than
@@ -104,10 +104,13 @@ def generate_sizes(width: int, height: int, minimum_size: int = 200):
     return sizes
 
 
-def convert_image(image_path: Path, target_path: Path, quality: int = 80,
-                  subsampling: str = '4:2:0'):
+def convert_image(
+    image_path: Path, target_path: Path, quality: int = 80, subsampling: str = '4:2:0'
+):
     """
-    Given the path to an image, outputs the image to the target path in jpeg format. This should
+    Given the path to an image, outputs the image to the target path in jpeg format.
+    This should.
+
     happen to all images that will have processing done on them subsequently as it means we can use
     a common approach to all files - namely using jpegtran on them.
 
@@ -129,8 +132,8 @@ def convert_image(image_path: Path, target_path: Path, quality: int = 80,
 
 def parse_identifier(identifier: str) -> Tuple[Optional[str], str]:
     """
-    Parse the identifier into a profile name and image name. The profile name may be omitted in
-    which case a (None, <name>) is returned.
+    Parse the identifier into a profile name and image name. The profile name may be
+    omitted in which case a (None, <name>) is returned.
 
     :param identifier: the image identifier
     :return: a 2-tuple of 2 strings or None and a string
@@ -166,8 +169,8 @@ def to_jpegtran(image: Image) -> JPEGImage:
 
 def get_mimetype(filename: Union[str, Path]) -> str:
     """
-    Given a filename, guesses the mime type and returns it. If no sensible guess can be made then
-    application/octet-stream is returned.
+    Given a filename, guesses the mime type and returns it. If no sensible guess can be
+    made then application/octet-stream is returned.
 
     :param filename: the name of the file
     :return: a mime type
@@ -177,8 +180,9 @@ def get_mimetype(filename: Union[str, Path]) -> str:
     return guess if guess is not None else 'application/octet-stream'
 
 
-def create_client_session(limit: int, ssl: bool = True,
-                          base_url: Optional[str] = None) -> aiohttp.ClientSession:
+def create_client_session(
+    limit: int, ssl: bool = True, base_url: Optional[str] = None
+) -> aiohttp.ClientSession:
     """
     Convenience function to create a new aiohttp session object.
 
@@ -189,8 +193,9 @@ def create_client_session(limit: int, ssl: bool = True,
     """
     # if we want to use ssl this parameter needs to be set to None, if not then False is used
     ssl = None if ssl else False
-    return aiohttp.ClientSession(base_url=base_url,
-                                 connector=aiohttp.TCPConnector(limit=limit, ssl=ssl))
+    return aiohttp.ClientSession(
+        base_url=base_url, connector=aiohttp.TCPConnector(limit=limit, ssl=ssl)
+    )
 
 
 class Fetchable(abc.ABC):
@@ -203,6 +208,7 @@ class Fetchable(abc.ABC):
     def public_name(self) -> str:
         """
         A name to use in errors.
+
         :return: a name that is acceptable for public users.
         """
         ...
@@ -211,7 +217,9 @@ class Fetchable(abc.ABC):
     @abc.abstractmethod
     def store_path(self) -> Path:
         """
-        Where this fetchable will be stored in the store. This should be relative to the store root.
+        Where this fetchable will be stored in the store.
+
+        This should be relative to the store root.
         :return: the relative path where this fetchable should be stored
         """
         ...
@@ -219,19 +227,27 @@ class Fetchable(abc.ABC):
 
 class FetchCache(abc.ABC):
     """
-    A cache with TTL and LRU functionality which allows custom fetching of the data put in it.
+    A cache with TTL and LRU functionality which allows custom fetching of the data put
+    in it.
     """
 
-    def __init__(self, root: Path, ttl: float, max_size: float, clean_empty_dirs: bool = True,
-                 fetch_timeout: float = 120):
+    def __init__(
+        self,
+        root: Path,
+        ttl: float,
+        max_size: float,
+        clean_empty_dirs: bool = True,
+        fetch_timeout: float = 120,
+    ):
         """
-        Note that this init will automatically call self.load() and therefore populate the cache.
-        This could take time if the cache is enormous.
+        Note that this init will automatically call self.load() and therefore populate
+        the cache. This could take time if the cache is enormous.
 
         :param root: the root under which all data will be stored
         :param ttl: how long untouched files can stay in the cache before being removed
         :param max_size: the maximum number of bytes that can be stored in the cache
-        :param clean_empty_dirs: whether to delete empty parent dirs when removing expired files
+        :param clean_empty_dirs: whether to delete empty parent dirs when removing
+            expired files
         :param fetch_timeout: how long to wait for the _fetch function to complete
         """
         self.root = root
@@ -265,8 +281,8 @@ class FetchCache(abc.ABC):
     @property
     def pct(self) -> str:
         """
-        Returns the percentage usage of the cache as a number with 2 decimal points. This is mainly
-        a convenience for logging.
+        Returns the percentage usage of the cache as a number with 2 decimal points.
+        This is mainly a convenience for logging.
 
         :return: the percentage the cache is in use as a formatted string
         """
@@ -305,8 +321,8 @@ class FetchCache(abc.ABC):
 
     def __contains__(self, relative_path: Path) -> bool:
         """
-        Checks whether the given path is in use or not. This only checks the in use dict, not the
-        cleaners dict.
+        Checks whether the given path is in use or not. This only checks the in use
+        dict, not the cleaners dict.
 
         :param relative_path: the path (relative to the root)
         :return: True if the path is in use, False if not
@@ -325,9 +341,10 @@ class FetchCache(abc.ABC):
     @asynccontextmanager
     async def use(self, fetchable: Fetchable) -> Path:
         """
-        Async context manager which when entered ensures the given fetchable is on disk and provides
-        a path to it. Once the context manager exits the path is volatile and will expire according
-        to the TTL (once it is no longer in use by any other coroutines).
+        Async context manager which when entered ensures the given fetchable is on disk
+        and provides a path to it. Once the context manager exits the path is volatile
+        and will expire according to the TTL (once it is no longer in use by any other
+        coroutines).
 
         :param fetchable: the fetchable
         :return: the full path to the file
@@ -350,8 +367,14 @@ class FetchCache(abc.ABC):
                         self.total_size += self._sizes[path]
 
                         times = 0
-                        while self._cleaners and self.total_size > self.max_size and times < 10:
-                            path_to_clean_up, handle = self._cleaners.popitem(last=False)
+                        while (
+                            self._cleaners
+                            and self.total_size > self.max_size
+                            and times < 10
+                        ):
+                            path_to_clean_up, handle = self._cleaners.popitem(
+                                last=False
+                            )
                             handle.cancel()
                             self._clean_up(path_to_clean_up)
                             times += 1
@@ -388,8 +411,9 @@ class FetchCache(abc.ABC):
 
 def disable_bomb_errors():
     """
-    Disables DecompressionBombErrors that are thrown by Pillow when an image we're processing is too
-    large.
+    Disables DecompressionBombErrors that are thrown by Pillow when an image we're
+    processing is too large.
+
     Details: https://pillow.readthedocs.io/en/latest/releasenotes/5.0.0.html#decompression-bombs-now-raise-exceptions
     """
     # disable DecompressionBombErrors

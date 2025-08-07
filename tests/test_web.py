@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from unittest.mock import patch
-
 import hashlib
 import os
+from unittest.mock import patch
+
 import pytest
 import yaml
 from starlette.testclient import TestClient
 
 from iiif.ops import IIIF_LEVEL
-from tests.utils import create_image
+from tests.helpers.utils import create_image
 
 
 @pytest.fixture
@@ -19,6 +19,7 @@ def test_client(config, tmp_path):
         yaml.dump(config.raw, f)
     with patch.dict(os.environ, {'IIIF_CONFIG': str(config_path)}):
         from iiif.web import app
+
         with TestClient(app) as client:
             yield client
 
@@ -62,8 +63,8 @@ def test_image_info_handler(test_client, config):
         {'width': 1024, 'scaleFactors': [1, 2, 4, 8, 16]},
     ]
     assert info['sizes'] == [
-        {"width": 400, "height": 500},
-        {"width": 200, "height": 250},
+        {'width': 400, 'height': 500},
+        {'width': 200, 'height': 250},
     ]
 
 
@@ -92,5 +93,7 @@ def test_missing_image(test_client, config):
 
 def test_too_many_images_download(test_client, config):
     size = config.download_max_files + 1
-    response = test_client.get(f'/originals?identifiers={",".join(map(str, range(size)))}')
+    response = test_client.get(
+        f'/originals?identifiers={",".join(map(str, range(size)))}'
+    )
     assert response.status_code == 400

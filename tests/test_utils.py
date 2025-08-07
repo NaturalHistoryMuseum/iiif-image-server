@@ -5,17 +5,25 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from PIL import Image
 from jpegtran import JPEGImage
+from PIL import Image
 
-from iiif.utils import convert_image, generate_sizes, get_size, get_mimetype, \
-    parse_identifier, \
-    to_pillow, to_jpegtran, Locker, FetchCache, Fetchable
-from tests.utils import create_image, create_file
+from iiif.utils import (
+    Fetchable,
+    FetchCache,
+    Locker,
+    convert_image,
+    generate_sizes,
+    get_mimetype,
+    get_size,
+    parse_identifier,
+    to_jpegtran,
+    to_pillow,
+)
+from tests.helpers.utils import create_file, create_image
 
 
 class TestConvertImage:
-
     def test_jpeg(self, tmp_path):
         image_path = tmp_path / 'image'
         img = Image.new('RGB', (400, 400), color='red')
@@ -97,7 +105,6 @@ mss_base_url_scenarios = [
 
 
 class TestGetMimetype:
-
     def test_normal(self):
         assert get_mimetype('something.jpg') == 'image/jpeg'
 
@@ -120,7 +127,6 @@ def test_to_pillow_and_to_jpegtran():
 
 @dataclass
 class FetchableForTesting(Fetchable):
-
     def __init__(self, size: int):
         self.size = size
         self.name = f'{self.size}bytes.bin'
@@ -135,7 +141,6 @@ class FetchableForTesting(Fetchable):
 
 
 class FetchCacheForTesting(FetchCache):
-
     def __init__(self, root: Path, ttl: float = 1, max_size: float = 20):
         super().__init__(Path(root), ttl, max_size)
 
@@ -151,7 +156,6 @@ def cache(tmpdir: Path) -> FetchCacheForTesting:
 
 
 class TestFetchCache:
-
     async def test_simple_usage(self, cache: FetchCacheForTesting):
         fetchable = FetchableForTesting(4)
         async with cache.use(fetchable) as path:
@@ -172,7 +176,6 @@ class TestFetchCache:
 
 
 class TestLocker:
-
     async def test_is_locked(self):
         locker = Locker()
         async with locker.acquire('test'):

@@ -1,8 +1,9 @@
-import pytest
 from pathlib import Path
 
+import pytest
+
 from iiif.exceptions import InvalidIIIFParameter
-from iiif.ops import Region, Size, Rotation, Quality, Format, IIIFOps, IIIF_LEVEL
+from iiif.ops import IIIF_LEVEL, Format, IIIFOps, Quality, Region, Rotation, Size
 from iiif.profiles.base import ImageInfo
 
 """
@@ -22,7 +23,6 @@ def full_region(info: ImageInfo) -> Region:
 
 
 class TestParseRegion:
-
     def test_level0(self, info: ImageInfo):
         region = Region.parse(f'0,0,{info.width},{info.height}', info)
         assert region == Region(0, 0, info.width, info.height, full=True)
@@ -65,7 +65,6 @@ class TestParseRegion:
 
 
 class TestParseSize:
-
     def test_level0(self, full_region: Region):
         size = Size.parse('max', full_region)
         assert size == Size(full_region.w, full_region.h, max=True)
@@ -147,7 +146,6 @@ class TestParseSize:
 
 
 class TestParseRotation:
-
     def test_level0(self):
         rotation = Rotation.parse('0')
         assert rotation == Rotation(0)
@@ -177,7 +175,6 @@ class TestParseRotation:
 
 
 class TestParseQuality:
-
     def test_level0(self):
         assert Quality.parse('default') == Quality.default
 
@@ -212,7 +209,6 @@ class TestParseQuality:
 
 
 class TestParseFormat:
-
     def test_level0(self):
         assert Format.parse('jpg') == Format.jpg
 
@@ -227,7 +223,6 @@ class TestParseFormat:
 
 
 class TestParseParams:
-
     def test_default(self, info: ImageInfo):
         ops = IIIFOps.parse(info)
         assert ops == IIIFOps(
@@ -235,7 +230,7 @@ class TestParseParams:
             size=Size(info.width, info.height, max=True),
             rotation=Rotation(0, mirror=False),
             quality=Quality.default,
-            format=Format.jpg
+            format=Format.jpg,
         )
 
     def test_with_options(self, info: ImageInfo):
@@ -245,14 +240,14 @@ class TestParseParams:
             size='10,',
             rotation='!90',
             quality='gray',
-            fmt='png'
+            fmt='png',
         )
         assert ops == IIIFOps(
             region=Region(10, 20, 40, 50, full=False),
             size=Size(10, 12, max=False),
             rotation=Rotation(90, mirror=True),
             quality=Quality.gray,
-            format=Format.png
+            format=Format.png,
         )
 
 
@@ -262,7 +257,7 @@ def test_ops_location():
         size=Size(10, 12, max=False),
         rotation=Rotation(90, mirror=True),
         quality=Quality.gray,
-        format=Format.png
+        format=Format.png,
     )
     assert ops.location == Path('10_20_40_50', '10_12', '-90', 'gray.png')
 

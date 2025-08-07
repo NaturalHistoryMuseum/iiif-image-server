@@ -1,9 +1,8 @@
-from concurrent.futures import Executor
-
 import abc
+from concurrent.futures import Executor
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Tuple, Optional, Any, AsyncIterable
+from typing import Any, AsyncIterable, Optional, Tuple
 
 from iiif.config import Config
 
@@ -30,6 +29,7 @@ class ImageInfo:
     def size(self) -> Tuple[int, int]:
         """
         Returns width and height as a 2-tuple.
+
         :return: a 2-tuple containing the width and height
         """
         return self.width, self.height
@@ -45,14 +45,23 @@ class ImageInfo:
 
 class AbstractProfile(abc.ABC):
     """
-    Abstract base class for all profiles. Each subclass defines a profile which can be used to
-    retrieve the source image data required to complete a IIIF request (either info.json or actual
-    data). Once a profile has been used to retrieve a source image and make it real on disk as a
-    jpeg file, it can be processed in a common way (see the processing module).
+    Abstract base class for all profiles.
+
+    Each subclass defines a profile which can be used to retrieve the source image data
+    required to complete a IIIF request (either info.json or actual data). Once a
+    profile has been used to retrieve a source image and make it real on disk as a jpeg
+    file, it can be processed in a common way (see the processing module).
     """
 
-    def __init__(self, name: str, config: Config, pool: Executor, rights: str,
-                 cache_for: float = 60, **kwargs):
+    def __init__(
+        self,
+        name: str,
+        config: Config,
+        pool: Executor,
+        rights: str,
+        cache_for: float = 60,
+        **kwargs,
+    ):
         """
         :param name: the name of the profile, should be unique across profiles
         :param config: the config object
@@ -76,8 +85,9 @@ class AbstractProfile(abc.ABC):
     @abc.abstractmethod
     async def get_info(self, name: str) -> ImageInfo:
         """
-        Returns an instance of ImageInfo or one of it's subclasses for the given name. Note that
-        this function does not generate the info.json, see generate_info_json below for that!
+        Returns an instance of ImageInfo or one of it's subclasses for the given name.
+        Note that this function does not generate the info.json, see generate_info_json
+        below for that!
 
         :param name: the name of the image
         :return: an info object
@@ -86,14 +96,18 @@ class AbstractProfile(abc.ABC):
 
     @abc.abstractmethod
     @asynccontextmanager
-    async def use_source(self, info: ImageInfo, size: Optional[Tuple[int, int]] = None) -> Path:
+    async def use_source(
+        self, info: ImageInfo, size: Optional[Tuple[int, int]] = None
+    ) -> Path:
         """
-        Ensures the source file required for the image is available, using the optional size hint to
-        choose the best file if multiple sizes are available, and then yields the path to it. This
-        function should ensure that while the context is up the source is available at the path.
+        Ensures the source file required for the image is available, using the optional
+        size hint to choose the best file if multiple sizes are available, and then
+        yields the path to it. This function should ensure that while the context is up
+        the source is available at the path.
 
         :param info: the ImageInfo
-        :param size: an 2-tuple of ints to hint at the target size required for subsequent ops
+        :param size: an 2-tuple of ints to hint at the target size required for
+            subsequent ops
         :return: the Path to the source file
         """
         ...
@@ -101,8 +115,9 @@ class AbstractProfile(abc.ABC):
     @abc.abstractmethod
     async def resolve_filename(self, name: str) -> Optional[str]:
         """
-        Given the name of an image produced by this profile, returns the filename that should be
-        used for it. This is used when original images are downloaded to give them the right name.
+        Given the name of an image produced by this profile, returns the filename that
+        should be used for it. This is used when original images are downloaded to give
+        them the right name.
 
         :param name: the image name
         :return: the filename
@@ -112,8 +127,8 @@ class AbstractProfile(abc.ABC):
     @abc.abstractmethod
     async def resolve_original_size(self, name: str) -> int:
         """
-        Given the name of an image managed by this profile, returns the size of the original source
-        image.
+        Given the name of an image managed by this profile, returns the size of the
+        original source image.
 
         :param name: the name of the image
         :return: the size of the original image in bytes
@@ -121,12 +136,14 @@ class AbstractProfile(abc.ABC):
         ...
 
     @abc.abstractmethod
-    async def stream_original(self, name: str, chunk_size: int = 4096) -> AsyncIterable[bytes]:
+    async def stream_original(
+        self, name: str, chunk_size: int = 4096
+    ) -> AsyncIterable[bytes]:
         """
-        Streams the original file associated with the given name, if valid. The chunk size can be
-        configured to define how much data is yielded each time this function is scheduled to run
-        and is defaulted to a relatively low 4096 to ensure the server doesn't lock up serving large
-        originals to users.
+        Streams the original file associated with the given name, if valid. The chunk
+        size can be configured to define how much data is yielded each time this
+        function is scheduled to run and is defaulted to a relatively low 4096 to ensure
+        the server doesn't lock up serving large originals to users.
 
         :param name: the name of the image
         :param chunk_size: the number of bytes to yield at a time
@@ -136,8 +153,9 @@ class AbstractProfile(abc.ABC):
 
     async def close(self):
         """
-        Close down the profile ensuring any resources are released. This will be called before
-        server shutdown.
+        Close down the profile ensuring any resources are released.
+
+        This will be called before server shutdown.
         """
         pass
 
