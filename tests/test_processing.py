@@ -13,7 +13,7 @@ from PIL import Image, ImageOps
 from iiif.ops import Format, Quality, Region, Rotation, Size
 from iiif.profiles.base import ImageInfo
 from iiif.utils import to_jpegtran, to_pillow
-from tests.utils import create_image
+from tests.helpers.utils import create_image
 
 DEFAULT_IMAGE_WIDTH = 4000
 DEFAULT_IMAGE_HEIGHT = 5000

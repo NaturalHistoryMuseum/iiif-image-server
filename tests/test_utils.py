@@ -20,7 +20,7 @@ from iiif.utils import (
     to_jpegtran,
     to_pillow,
 )
-from tests.utils import create_file, create_image
+from tests.helpers.utils import create_file, create_image
 
 
 class TestConvertImage:

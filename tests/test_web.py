@@ -9,7 +9,7 @@ import yaml
 from starlette.testclient import TestClient
 
 from iiif.ops import IIIF_LEVEL
-from tests.utils import create_image
+from tests.helpers.utils import create_image
 
 
 @pytest.fixture

@@ -10,7 +10,7 @@ import pytest
 from iiif.config import Config
 from iiif.exceptions import ImageNotFound
 from iiif.profiles.mss import MSSImageInfo, MSSProfile
-from tests.utils import create_image
+from tests.helpers.utils import create_image
 
 
 def test_mss_choose_file_no_derivatives():

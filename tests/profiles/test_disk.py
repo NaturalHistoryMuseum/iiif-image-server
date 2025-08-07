@@ -6,7 +6,7 @@ import pytest
 
 from iiif.profiles.base import ImageInfo
 from iiif.profiles.disk import MissingFile, OnDiskProfile
-from tests.utils import create_image
+from tests.helpers.utils import create_image
 
 
 @pytest.fixture(scope='function')
