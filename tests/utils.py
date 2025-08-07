@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
-from PIL import Image
 from pathlib import Path
+
+from PIL import Image
 
 from iiif.config import Config
 
 
-def create_image(config: Config, width: int, height: int, profile: str = 'test',
-                 name: str = 'image', img_format='jpeg', mode='RGB') -> Path:
+def create_image(
+    config: Config,
+    width: int,
+    height: int,
+    profile: str = 'test',
+    name: str = 'image',
+    img_format='jpeg',
+    mode='RGB',
+) -> Path:
     """
     Create a real image file for testing and returns the path to it.
 

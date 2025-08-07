@@ -3,7 +3,7 @@ from starlette.responses import FileResponse, JSONResponse
 
 from iiif.ops import IIIF_LEVEL, IIIFOps, Quality
 from iiif.state import state
-from iiif.utils import get_mimetype, generate_sizes
+from iiif.utils import generate_sizes, get_mimetype
 
 router = APIRouter()
 
@@ -50,14 +50,15 @@ async def get_image_info(identifier: str) -> JSONResponse:
     # add a cache-control header and iiif header
     headers = {
         'cache-control': f'max-age={profile.cache_for}',
-        'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"'
+        'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"',
     }
     return JSONResponse(content=info_json, headers=headers)
 
 
 @router.get('/{identifier}/{region}/{size}/{rotation}/{quality}.{fmt}')
-async def get_image_data(identifier: str, region: str, size: str, rotation: str, quality: str,
-                         fmt: str) -> FileResponse:
+async def get_image_data(
+    identifier: str, region: str, size: str, rotation: str, quality: str, fmt: str
+) -> FileResponse:
     """
     IIIF image info endpoint compliant with the specification:
     https://iiif.io/api/image/3.0/#21-image-request-uri-syntax.
@@ -83,6 +84,6 @@ async def get_image_data(identifier: str, region: str, size: str, rotation: str,
     path = await state.processor.process(profile, info, ops)
     headers = {
         'cache-control': f'max-age={profile.cache_for}',
-        'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"'
+        'link': f'<http://iiif.io/api/image/3/level{IIIF_LEVEL}.json>;rel="profile"',
     }
     return FileResponse(path, media_type=get_mimetype(path), headers=headers)

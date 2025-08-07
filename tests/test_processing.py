@@ -2,14 +2,15 @@
 # encoding: utf-8
 
 import hashlib
-import pytest
-from PIL import Image, ImageOps
-from jpegtran import JPEGImage
 from pathlib import Path
 from queue import Queue
 from typing import Union
 
-from iiif.ops import Region, Size, Rotation, Quality, Format
+import pytest
+from jpegtran import JPEGImage
+from PIL import Image, ImageOps
+
+from iiif.ops import Format, Quality, Region, Rotation, Size
 from iiif.profiles.base import ImageInfo
 from iiif.utils import to_jpegtran, to_pillow
 from tests.utils import create_image
@@ -30,7 +31,9 @@ def cache_path(config):
 
 @pytest.fixture
 def info():
-    return ImageInfo('test_profile', 'test_image', DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT)
+    return ImageInfo(
+        'test_profile', 'test_image', DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT
+    )
 
 
 @pytest.fixture
@@ -45,7 +48,9 @@ def result_queue():
     return Queue()
 
 
-def assert_same(image1: Union[JPEGImage, Image.Image], image2: Union[JPEGImage, Image.Image]):
+def assert_same(
+    image1: Union[JPEGImage, Image.Image], image2: Union[JPEGImage, Image.Image]
+):
     if not isinstance(image1, JPEGImage):
         image1 = to_jpegtran(image1)
     image1_hash = hashlib.sha256(image1.as_blob()).hexdigest()
@@ -57,11 +62,12 @@ def assert_same(image1: Union[JPEGImage, Image.Image], image2: Union[JPEGImage, 
 
 @pytest.fixture
 def image() -> JPEGImage:
-    return to_jpegtran(Image.new('RGB', (DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT), color='red'))
+    return to_jpegtran(
+        Image.new('RGB', (DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT), color='red')
+    )
 
 
 class TestProcessRegion:
-
     def test_full(self, image: JPEGImage):
         region = Region(0, 0, DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT, full=True)
         assert region.process(image) is image
@@ -82,7 +88,6 @@ class TestProcessRegion:
 
 
 class TestProcessSize:
-
     def test_max(self, image: JPEGImage):
         size = Size(DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT, max=True)
         assert size.process(image) is image
@@ -94,7 +99,6 @@ class TestProcessSize:
 
 
 class TestProcessRotation:
-
     def test_rotate(self, image: JPEGImage):
         rotation = Rotation(90)
         result = rotation.process(image)
@@ -112,7 +116,6 @@ class TestProcessRotation:
 
 
 class TestQuality:
-
     def test_default(self, image: JPEGImage):
         assert Quality.default.process(image) is image
 
@@ -135,5 +138,6 @@ def test_format(fmt: Format, expected_format: str, tmp_path: Path, image: JPEGIm
     assert output_path.exists()
     with Image.open(output_path) as image:
         assert image.format == expected_format
+
 
 # TODO: write processor tests

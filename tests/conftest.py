@@ -16,7 +16,7 @@ def config(tmp_path):
         profiles={
             'test': {
                 'type': 'disk',
-                'rights': 'http://creativecommons.org/licenses/by/4.0/'
+                'rights': 'http://creativecommons.org/licenses/by/4.0/',
             }
-        }
+        },
     )

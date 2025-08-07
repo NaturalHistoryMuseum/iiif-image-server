@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-from concurrent.futures import Executor
-
 import asyncio
+from concurrent.futures import Executor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
 from iiif.ops import IIIFOps
-from iiif.profiles.base import ImageInfo, AbstractProfile
-from iiif.utils import FetchCache, Fetchable
+from iiif.profiles.base import AbstractProfile, ImageInfo
+from iiif.utils import Fetchable, FetchCache
 
 
 @dataclass
@@ -17,6 +16,7 @@ class ImageProcessorTask(Fetchable):
     """
     Class used to manage the ImageProcessor tasks.
     """
+
     profile: AbstractProfile
     info: ImageInfo
     ops: IIIFOps
@@ -32,9 +32,9 @@ class ImageProcessorTask(Fetchable):
     @property
     def size_hint(self) -> Optional[Tuple[int, int]]:
         """
-        This is used as a performance enhancement. By providing a hint at the size of the image we
-        need to serve up, we can (sometimes!) use a smaller source image thus reducing downloading,
-        storage, and processing time.
+        This is used as a performance enhancement. By providing a hint at the size of
+        the image we need to serve up, we can (sometimes!) use a smaller source image
+        thus reducing downloading, storage, and processing time.
 
         :return: the hint size as a tuple or None if we can't hint at anything
         """
@@ -63,7 +63,9 @@ class ImageProcessor(FetchCache):
         super().__init__(root, ttl, max_size)
         self.pool = pool
 
-    async def process(self, profile: AbstractProfile, info: ImageInfo, ops: IIIFOps) -> Path:
+    async def process(
+        self, profile: AbstractProfile, info: ImageInfo, ops: IIIFOps
+    ) -> Path:
         """
         Process an image according to the IIIF ops.
 
@@ -90,4 +92,6 @@ class ImageProcessor(FetchCache):
         """
         loop = asyncio.get_event_loop()
         async with task.profile.use_source(task.info, task.size_hint) as source_path:
-            await loop.run_in_executor(self.pool, task.ops.process, source_path, task.store_path)
+            await loop.run_in_executor(
+                self.pool, task.ops.process, source_path, task.store_path
+            )

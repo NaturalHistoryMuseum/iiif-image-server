@@ -1,53 +1,58 @@
-from concurrent.futures import Executor
-
-import aiofiles
 import asyncio
-import filetype
 import shutil
 import tempfile
+from concurrent.futures import Executor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+import aiofiles
+import filetype
+
 from iiif.config import Config
-from iiif.exceptions import ImageNotFound, IIIFServerException
+from iiif.exceptions import IIIFServerException, ImageNotFound
 from iiif.profiles.base import AbstractProfile, ImageInfo
-from iiif.utils import get_size, FetchCache, Fetchable, convert_image
+from iiif.utils import Fetchable, FetchCache, convert_image, get_size
 
 
 class MissingFile(ImageNotFound):
-
     def __init__(self, profile: str, name: str, source: Path):
-        super().__init__(profile, name,
-                         log=f"Couldn't find the image file for {name} on disk at {source}")
+        super().__init__(
+            profile,
+            name,
+            log=f"Couldn't find the image file for {name} on disk at {source}",
+        )
         self.source = source
 
 
 class OnDiskConversionFailure(IIIFServerException):
     def __init__(self, converted_file: 'OnDiskConvertedFile', cause: Exception):
-        super().__init__(f'Failed to convert source image',
-                         log=f'Failed to convert {converted_file.public_name} due to {cause}',
-                         cause=cause)
+        super().__init__(
+            f'Failed to convert source image',
+            log=f'Failed to convert {converted_file.public_name} due to {cause}',
+            cause=cause,
+        )
 
 
 class OnDiskProfile(AbstractProfile):
     """
-    A profile representing source files that are already on disk and don't need to be fetched from
-    an external source.
+    A profile representing source files that are already on disk and don't need to be
+    fetched from an external source.
     """
 
-    def __init__(self,
-                 name: str,
-                 config: Config,
-                 pool: Executor,
-                 rights: str,
-                 cache_for: float = 60,
-                 cache_size: int = 1024 * 1024 * 256,
-                 convert_quality: int = 85,
-                 convert_subsampling: str = '4:2:0',
-                 **kwargs
-                 ):
+    def __init__(
+        self,
+        name: str,
+        config: Config,
+        pool: Executor,
+        rights: str,
+        cache_for: float = 60,
+        cache_size: int = 1024 * 1024 * 256,
+        convert_quality: int = 85,
+        convert_subsampling: str = '4:2:0',
+        **kwargs,
+    ):
         """
         :param name: the name of the profile, should be unique across profiles
         :param config: the config object
@@ -60,13 +65,19 @@ class OnDiskProfile(AbstractProfile):
         :param kwargs: extra kwargs for the AbstractProfile base class __init__
         """
         super().__init__(name, config, pool, rights, cache_for, **kwargs)
-        self.store = OnDiskStore(self.cache_path / 'jpeg', pool, cache_for, cache_size,
-                                 convert_quality, convert_subsampling)
+        self.store = OnDiskStore(
+            self.cache_path / 'jpeg',
+            pool,
+            cache_for,
+            cache_size,
+            convert_quality,
+            convert_subsampling,
+        )
 
     async def get_info(self, name: str) -> ImageInfo:
         """
-        Given an image name, returns an info object for it. If the image doesn't exist on disk then
-        an error is raised.
+        Given an image name, returns an info object for it. If the image doesn't exist
+        on disk then an error is raised.
 
         :param name: the image name
         :return: an ImageInfo instance
@@ -78,8 +89,9 @@ class OnDiskProfile(AbstractProfile):
     @asynccontextmanager
     async def use_source(self, info: ImageInfo, *args, **kwargs) -> Path:
         """
-        Given an info object, yields the path to the on disk image source. The target size is
-        ignored by this function because we only have the full size originals and nothing else.
+        Given an info object, yields the path to the on disk image source. The target
+        size is ignored by this function because we only have the full size originals
+        and nothing else.
 
         :param info: the image info object
         :return: the path to the source image on disk
@@ -96,8 +108,8 @@ class OnDiskProfile(AbstractProfile):
 
     def _get_source(self, name: str) -> Path:
         """
-        Returns the path to the given name in this profile. If the file doesn't exist, raises a
-        MissingFile error.
+        Returns the path to the given name in this profile. If the file doesn't exist,
+        raises a MissingFile error.
 
         :param name: the name of the image
         :return: the path to the image
@@ -130,8 +142,8 @@ class OnDiskProfile(AbstractProfile):
 
     async def stream_original(self, name: str, chunk_size: int = 4096):
         """
-        Streams the source file for the given image name from disk to the requester. This function
-        uses aiofiles to avoid locking up the server.
+        Streams the source file for the given image name from disk to the requester.
+        This function uses aiofiles to avoid locking up the server.
 
         :param name: the image name
         :param chunk_size: the size in bytes of each chunk
@@ -157,6 +169,7 @@ class OnDiskConvertedFile(Fetchable):
     """
     Fetchable subclass representing an image on disk.
     """
+
     name: str
     original_file: Path
 
@@ -172,11 +185,18 @@ class OnDiskConvertedFile(Fetchable):
 
 
 class OnDiskStore(FetchCache):
-    def __init__(self, root: Path, pool: Executor, ttl: float, max_size: float,
-                 quality: int = 85, subsampling: str = '4:2:0'):
+    def __init__(
+        self,
+        root: Path,
+        pool: Executor,
+        ttl: float,
+        max_size: float,
+        quality: int = 85,
+        subsampling: str = '4:2:0',
+    ):
         """
-        Note that this init will automatically call self.load() and therefore populate the cache.
-        This could take time if the cache is enormous.
+        Note that this init will automatically call self.load() and therefore populate
+        the cache. This could take time if the cache is enormous.
 
         :param root: the root under which all data will be stored
         :param pool: the general purpose pool for offloading processing if necessary
