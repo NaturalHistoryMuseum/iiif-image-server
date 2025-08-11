@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-import pytest
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Union
-from unittest.mock import AsyncMock, patch, Mock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 from iiif.config import Config
 from iiif.exceptions import ImageNotFound
 from iiif.profiles.mss import MSSImageInfo, MSSProfile
-from tests.utils import create_image
+from tests.helpers.utils import create_image
 
 
 def test_mss_choose_file_no_derivatives():
@@ -35,7 +36,7 @@ def test_mss_choose_file_with_derivatives():
             dict(file='medium.jpg', width=500, height=1000),
             dict(file='large.jpg', width=900, height=1800),
             dict(file='original.jpg', width=1000, height=2000),
-        ]
+        ],
     }
     info = MSSImageInfo('test', 'image', doc)
 
@@ -51,19 +52,21 @@ def test_mss_choose_file_with_derivatives():
     assert info.choose_file((2000, 4000)) == 'original.tif'
 
 
-def create_profile(config: Config, mss_doc: Union[Exception, dict], mss_valid: bool,
-                   image: Union[Exception, Path], **kwargs) -> MSSProfile:
-    mock_es_handler = MagicMock(
-        close=AsyncMock()
-    )
+def create_profile(
+    config: Config,
+    mss_doc: Union[Exception, dict],
+    mss_valid: bool,
+    image: Union[Exception, Path],
+    **kwargs,
+) -> MSSProfile:
+    mock_es_handler = MagicMock(close=AsyncMock())
     if isinstance(mss_doc, Exception):
         mock_es_handler.configure_mock(get_mss_doc=AsyncMock(side_effect=mss_doc))
     else:
         mock_es_handler.configure_mock(get_mss_doc=AsyncMock(return_value=(1, mss_doc)))
 
     mock_store = MagicMock(
-        check_access=AsyncMock(return_value=mss_valid),
-        close=AsyncMock()
+        check_access=AsyncMock(return_value=mss_valid), close=AsyncMock()
     )
 
     @asynccontextmanager
@@ -82,13 +85,22 @@ def create_profile(config: Config, mss_doc: Union[Exception, dict], mss_valid: b
 
     mock_store.configure_mock(stream=data_iter, use=use)
 
-    with patch('iiif.profiles.mss.MSSElasticsearchHandler', Mock(return_value=mock_es_handler)):
+    with patch(
+        'iiif.profiles.mss.MSSElasticsearchHandler', Mock(return_value=mock_es_handler)
+    ):
         with patch('iiif.profiles.mss.MSSSourceStore', Mock(return_value=mock_store)):
-            return MSSProfile('test', config, 'some-rights-yo', Mock(), Mock(), Mock(), **kwargs)
+            return MSSProfile(
+                'test', config, 'some-rights-yo', Mock(), Mock(), Mock(), **kwargs
+            )
 
 
-def create_mss_doc(emu_irn: int, file: str, width: Optional[int] = None,
-                   height: Optional[int] = None, *derivatives: dict) -> dict:
+def create_mss_doc(
+    emu_irn: int,
+    file: str,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    *derivatives: dict,
+) -> dict:
     doc = {
         'id': emu_irn,
         'file': file,
@@ -107,10 +119,11 @@ def create_derivative(width, height, file) -> dict:
 
 
 class TestGetInfo:
-
     async def test_no_source_required(self, config):
         mss_doc = create_mss_doc(7, 'image.jpg', 200, 300)
-        profile = create_profile(config, mss_doc, True, Exception('should not need this'))
+        profile = create_profile(
+            config, mss_doc, True, Exception('should not need this')
+        )
         info = await profile.get_info('the_name')
         assert info.emu_irn == 7
         assert info.width == 200
@@ -139,7 +152,9 @@ class TestGetInfo:
 
     async def test_cache(self, config):
         mss_doc = create_mss_doc(7, 'image.jpg', 200, 300)
-        profile = create_profile(config, mss_doc, True, Exception('should not need this'))
+        profile = create_profile(
+            config, mss_doc, True, Exception('should not need this')
+        )
         with patch.object(profile, 'get_mss_doc', wraps=profile.get_mss_doc):
             await profile.get_info('the_name')
             assert profile.get_mss_doc.call_count == 1

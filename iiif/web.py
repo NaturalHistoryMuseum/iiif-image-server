@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # encoding: utf-8
-import aiohttp
-import humanize
 import platform
 import time
 from datetime import timedelta
+
+import aiohttp
+import humanize
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse, StreamingResponse
 
-from iiif.exceptions import handler, IIIFServerException
-from iiif.routers import iiif, originals, simple, mam
+from iiif.exceptions import IIIFServerException, handler
+from iiif.routers import iiif, mam, originals, simple
 from iiif.state import state
 from iiif.utils import disable_bomb_errors
 
 disable_bomb_errors()
 start_time = time.monotonic()
 app = FastAPI(title='Data Portal Image Service')
+
 
 @app.middleware('http')
 async def add_debug_headers(request: Request, call_next):
@@ -38,8 +40,8 @@ async def add_debug_headers(request: Request, call_next):
 @app.on_event('shutdown')
 async def on_shutdown():
     """
-    This is run on shutdown and makes sure that all of the objects we added to the app state are
-    closed properly.
+    This is run on shutdown and makes sure that all of the objects we added to the app
+    state are closed properly.
     """
     for profile in state.profiles.values():
         await profile.close()
@@ -49,20 +51,22 @@ async def on_shutdown():
 @app.get('/status')
 async def status() -> JSONResponse:
     """
-    Returns the status of the server along with some stats about current resource usages.
-    \f
+    Returns the status of the server along with some stats about current resource
+    usages. \f.
 
     :return: a dict
     """
     body = {
         'status': ':)',
-        'uptime': humanize.precisedelta(timedelta(seconds=(start_time - time.monotonic()))),
+        'uptime': humanize.precisedelta(
+            timedelta(seconds=(start_time - time.monotonic()))
+        ),
         'default_profile': state.config.default_profile_name,
         'processing': await state.processor.get_status(),
         'profiles': {
             profile.name: await profile.get_status()
             for profile in state.profiles.values()
-        }
+        },
     }
     return JSONResponse(body, headers={'cache-control': 'no-store'})
 
@@ -70,7 +74,9 @@ async def status() -> JSONResponse:
 @app.get('/favicon.ico')
 async def favicon() -> StreamingResponse:
     """
-    This only exists to stop requests to /favicon.ico from erroring when running the server under /.
+    This only exists to stop requests to /favicon.ico from erroring when running the
+    server under /.
+
     It's probably only useful in the dev env tbh and just returns the IIIF favicon.
     """
 

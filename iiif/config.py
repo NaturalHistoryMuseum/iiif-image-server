@@ -2,12 +2,12 @@
 # encoding: utf-8
 
 import os
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 class Config:
-
     def __init__(self, **options):
         self.raw = options
         # basic network configuration
@@ -27,7 +27,9 @@ class Config:
         self.pool_recycle_time = options.get('pool_recycle_time', 10)
 
         # image processing settings
-        self.processed_cache_size = options.get('processed_cache_size', 1024 * 1024 * 256)
+        self.processed_cache_size = options.get(
+            'processed_cache_size', 1024 * 1024 * 256
+        )
         self.processed_cache_ttl = options.get('processed_cache_ttl', 12 * 60 * 60)
 
         # size definitions for the quick access endpoints
@@ -47,8 +49,8 @@ class Config:
 
 def load_config() -> Config:
     """
-    Load the configuration and return it. The configuration must be a yaml file and will be loaded
-    from the path specified by the IIIF_CONFIG env var.
+    Load the configuration and return it. The configuration must be a yaml file and will
+    be loaded from the path specified by the IIIF_CONFIG env var.
 
     :return: a new Config object
     """

@@ -3,39 +3,33 @@ name: Tests
 on:
   push:
   workflow_dispatch:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
 
 jobs:
   test:
+    name: Run tests
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v2
-
+        uses: actions/checkout@v4
       - name: Update OS package list
         run: sudo apt-get update
-
       - name: Install OS dependencies
         run: sudo apt-get -y install libffi-dev libturbojpeg0-dev libjpeg-dev libpcre3 libpcre3-dev libcurl4-openssl-dev libssl-dev build-essential libmagickwand-dev
-
       - name: Setup Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: '3.8'
           architecture: x64
-
       - name: Update pip
         run: pip install -U pip
-
       - name: Install Python test package dependencies
         run: pip install pytest-cov coveralls
-
       - name: Install IIIF Image Server
         run: pip install ".[test]"
-
       - name: Run tests
         run: pytest --cov=iiif
-
       - name: Run coveralls
         run: coveralls --service=github
         env:

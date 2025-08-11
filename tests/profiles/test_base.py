@@ -2,7 +2,6 @@ from iiif.profiles.base import ImageInfo
 
 
 class TestImageInfo:
-
     def test_size(self):
         assert ImageInfo('test', 'image1', 100, 400).size == (100, 400)
 

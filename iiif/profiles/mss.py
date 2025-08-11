@@ -1,85 +1,96 @@
-from collections import Counter
-from concurrent.futures import Executor
-
 import asyncio
-import json
 import logging
 import shutil
 import tempfile
 import time
-from aiohttp import ClientResponse, ClientError, ClientTimeout
-from cachetools import TTLCache
+from collections import Counter
+from concurrent.futures import Executor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from elasticsearch_dsl import Search
 from functools import partial
 from itertools import cycle
 from pathlib import Path
-from typing import List, Union
-from typing import Tuple, Optional
+from typing import List, Optional, Tuple, Union
 from urllib.parse import quote
 
+from aiohttp import ClientError, ClientResponse, ClientTimeout
+from cachetools import TTLCache
+from elasticsearch_dsl import Search
+
 from iiif.config import Config
-from iiif.exceptions import Timeout, IIIFServerException, ImageNotFound, log_error
+from iiif.exceptions import IIIFServerException, ImageNotFound, Timeout, log_error
 from iiif.profiles.base import AbstractProfile, ImageInfo
-from iiif.utils import Locker, convert_image, create_client_session, FetchCache, Fetchable
-from iiif.utils import get_size
+from iiif.utils import (
+    Fetchable,
+    FetchCache,
+    Locker,
+    convert_image,
+    create_client_session,
+    get_size,
+)
 
 
 class MSSAccessDenied(ImageNotFound):
-
     def __init__(self, profile: str, name: str, emu_irn: int):
-        super().__init__(profile, name,
-                         log=f"MSS denied access to multimedia IRN {emu_irn} [guid: {name}]")
+        super().__init__(
+            profile,
+            name,
+            log=f'MSS denied access to multimedia IRN {emu_irn} [guid: {name}]',
+        )
         self.emu_irn = emu_irn
 
 
 class MSSDocDuplicates(ImageNotFound):
-
     def __init__(self, profile: str, name: str, total: int):
-        super().__init__(profile, name, log=f"Found {total} MSS docs for the guid {name}")
+        super().__init__(
+            profile, name, log=f'Found {total} MSS docs for the guid {name}'
+        )
         self.total = total
 
 
 class MSSDocNotFound(ImageNotFound):
-
     def __init__(self, profile: str, name: str):
-        super().__init__(profile, name, log=f"No MSS doc found for the guid {name}")
+        super().__init__(profile, name, log=f'No MSS doc found for the guid {name}')
 
 
 class MSSStoreFailure(IIIFServerException):
-
     def __init__(self, profile: str, name: str, cause: 'StoreStreamError'):
-        super().__init__(f'Failed to retrieve the requested image data for {name}', status_code=503,
-                         log=f'Failed to stream the source file for {profile}:{name} from '
-                             f'{cause.url} due to {cause.cause}')
+        super().__init__(
+            f'Failed to retrieve the requested image data for {name}',
+            status_code=503,
+            log=f'Failed to stream the source file for {profile}:{name} from '
+            f'{cause.url} due to {cause.cause}',
+        )
 
 
 class AssetIDNotFound(IIIFServerException):
-
     def __init__(self, asset_id: str):
-        super().__init__(f"Asset ID {asset_id} not found", status_code=404)
+        super().__init__(f'Asset ID {asset_id} not found', status_code=404)
 
 
 class AssetIDDuplicateGUIDs(IIIFServerException):
-
     def __init__(self, asset_id: str, total: int):
-        super().__init__(f"Asset ID {asset_id} matched multiple images", status_code=404,
-                         log=f"Asset ID {asset_id} matched multiple {total} GUIDs")
+        super().__init__(
+            f'Asset ID {asset_id} matched multiple images',
+            status_code=404,
+            log=f'Asset ID {asset_id} matched multiple {total} GUIDs',
+        )
         self.total = total
 
 
 class MSSStoreNoLength(IIIFServerException):
-
     def __init__(self, profile: str, name: str):
-        super().__init__(f'Failed to get data length for {name} from the {profile} backend.')
+        super().__init__(
+            f'Failed to get data length for {name} from the {profile} backend.'
+        )
 
 
 class MSSConversionFailure(IIIFServerException):
-
     def __init__(self, source: 'MSSSourceFile', cause: Exception):
-        super().__init__(f'Failed to convert source image',
-                         log=f'Failed to convert {source.file} ({source.emu_irn}) due to {cause}')
+        super().__init__(
+            f'Failed to convert source image',
+            log=f'Failed to convert {source.file} ({source.emu_irn}) due to {cause}',
+        )
 
 
 class MSSImageInfo(ImageInfo):
@@ -93,7 +104,9 @@ class MSSImageInfo(ImageInfo):
         :param name: the name of the image, this will be a GUID
         :param doc: the image's doc from the elasticsearch MSS index
         """
-        super().__init__(profile_name, name, doc.get('width', None), doc.get('height', None))
+        super().__init__(
+            profile_name, name, doc.get('width', None), doc.get('height', None)
+        )
         self.doc = doc
         self.emu_irn = doc['id']
         # the name of the original file as it appears on the actual filesystem EMu is using
@@ -106,9 +119,9 @@ class MSSImageInfo(ImageInfo):
 
     def choose_file(self, target_size: Optional[Tuple[int, int]] = None) -> str:
         """
-        Given a target size, retrieve the smallest file which contains the target size. If no target
-        size is provided or there are no derivatives available, then the original image file is
-        returned.
+        Given a target size, retrieve the smallest file which contains the target size.
+        If no target size is provided or there are no derivatives available, then the
+        original image file is returned.
 
         :param target_size: the target size as a 2-tuple of ints, or None
         :return: the name of the chosen file
@@ -116,35 +129,38 @@ class MSSImageInfo(ImageInfo):
         if target_size is not None and self.derivatives:
             target_width, target_height = target_size
             for derivative in self.derivatives:
-                if target_width <= derivative['width'] and target_height <= derivative['height']:
+                if (
+                    target_width <= derivative['width']
+                    and target_height <= derivative['height']
+                ):
                     return derivative['file']
         return self.original
 
 
 class MSSProfile(AbstractProfile):
-
-    def __init__(self,
-                 name: str,
-                 config: Config,
-                 pool: Executor,
-                 rights: str,
-                 es_hosts: List[str],
-                 mss_url: str,
-                 mss_ssl: bool = True,
-                 mss_index: str = 'data-mss-latest',
-                 mss_limit: int = 10,
-                 es_limit: int = 10,
-                 info_cache_size: int = 100_000,
-                 info_cache_ttl: float = 43_200,
-                 info_lock_ttl: float = 60,
-                 source_cache_size: int = 1024 * 1024 * 256,
-                 source_cache_ttl: float = 12 * 60 * 60,
-                 convert_quality: int = 85,
-                 convert_subsampling: str = '4:2:0',
-                 dams_limit: int = 4,
-                 dams_ssl: bool = True,
-                 **kwargs
-                 ):
+    def __init__(
+        self,
+        name: str,
+        config: Config,
+        pool: Executor,
+        rights: str,
+        es_hosts: List[str],
+        mss_url: str,
+        mss_ssl: bool = True,
+        mss_index: str = 'data-mss-latest',
+        mss_limit: int = 10,
+        es_limit: int = 10,
+        info_cache_size: int = 100_000,
+        info_cache_ttl: float = 43_200,
+        info_lock_ttl: float = 60,
+        source_cache_size: int = 1024 * 1024 * 256,
+        source_cache_ttl: float = 12 * 60 * 60,
+        convert_quality: int = 85,
+        convert_subsampling: str = '4:2:0',
+        dams_limit: int = 4,
+        dams_ssl: bool = True,
+        **kwargs,
+    ):
         """
         :param name: the name of this profile
         :param config: the Config object
@@ -182,16 +198,26 @@ class MSSProfile(AbstractProfile):
         self.mss_doc_cache = TTLCache(maxsize=info_cache_size, ttl=info_cache_ttl)
 
         self.es_handler = MSSElasticsearchHandler(es_hosts, es_limit, mss_index)
-        self.store = MSSSourceStore(self.source_path, pool, mss_url, source_cache_size,
-                                    source_cache_ttl, mss_limit, dams_limit, mss_ssl,
-                                    dams_ssl, convert_quality, convert_subsampling)
+        self.store = MSSSourceStore(
+            self.source_path,
+            pool,
+            mss_url,
+            source_cache_size,
+            source_cache_ttl,
+            mss_limit,
+            dams_limit,
+            mss_ssl,
+            dams_ssl,
+            convert_quality,
+            convert_subsampling,
+        )
 
     async def get_info(self, name: str) -> MSSImageInfo:
         """
-        Given an image name (a GUID) returns a MSSImageInfo object or raise an exception if the
-        image can't be found/isn't allowed to be accessed. If the image doesn't have width and
-        height stored in the elasticsearch index for whatever reason then the original source image
-        will be retrieved and the size extracted.
+        Given an image name (a GUID) returns a MSSImageInfo object or raise an exception
+        if the image can't be found/isn't allowed to be accessed. If the image doesn't
+        have width and height stored in the elasticsearch index for whatever reason then
+        the original source image will be retrieved and the size extracted.
 
         :param name: the GUID of the image
         :return: an MSSImageInfo instance
@@ -217,24 +243,32 @@ class MSSProfile(AbstractProfile):
                     raise
                 except Exception as cause:
                     e = ImageNotFound(
-                        self.name, f'An error occurred while processing an info request for {name}',
-                        cause=cause, level=logging.ERROR
+                        self.name,
+                        f'An error occurred while processing an info request for {name}',
+                        cause=cause,
+                        level=logging.ERROR,
                     )
                     raise e from cause
         except asyncio.TimeoutError as cause:
-            raise Timeout(cause=cause, log=f'Timeout while waiting for get_info lock on {name} in '
-                                           f'profile {self.name}')
+            raise Timeout(
+                cause=cause,
+                log=f'Timeout while waiting for get_info lock on {name} in '
+                f'profile {self.name}',
+            )
 
     @asynccontextmanager
-    async def use_source(self, info: MSSImageInfo, size: Optional[Tuple[int, int]] = None) -> Path:
+    async def use_source(
+        self, info: MSSImageInfo, size: Optional[Tuple[int, int]] = None
+    ) -> Path:
         """
-        Given an MSSImageInfo object, retrieve a source image and yield the path where it is stored.
-        This is an async context manager and the while the context exists the source image will
-        remain on disk. If no target size is provided then the size of the image is used as the
-        target size, this could result in either the original image being retrieved or a derivative
-        of the same size (sometimes, it seems, EMu generates a jpeg derivative of the same size as
-        the original). If the target size is provided then the smallest image available in MSS that
-        can fulfill the request will be used.
+        Given an MSSImageInfo object, retrieve a source image and yield the path where
+        it is stored. This is an async context manager and the while the context exists
+        the source image will remain on disk. If no target size is provided then the
+        size of the image is used as the target size, this could result in either the
+        original image being retrieved or a derivative of the same size (sometimes, it
+        seems, EMu generates a jpeg derivative of the same size as the original). If the
+        target size is provided then the smallest image available in MSS that can
+        fulfill the request will be used.
 
         :param info: an MSSImageInfo instance
         :param size: a target size 2-tuple or None
@@ -256,7 +290,8 @@ class MSSProfile(AbstractProfile):
 
     async def get_mss_doc(self, name: str) -> dict:
         """
-        Retrieves an MSS doc and ensures it's should be accessible. For a doc to be returned:
+        Retrieves an MSS doc and ensures it's should be accessible. For a doc to be
+        returned:
 
             - the GUID (i.e. the name) must be unique and exist in the mss elasticsearch index
             - the EMu IRN that the GUID maps to must be valid according the to the MSS (specifically
@@ -296,13 +331,16 @@ class MSSProfile(AbstractProfile):
                     e = ImageNotFound(self.name, name, cause=cause, level=logging.ERROR)
                     raise e from cause
         except asyncio.TimeoutError as cause:
-            raise Timeout(cause=cause, log=f'Timeout while waiting for get_mss_doc lock on {name} '
-                                           f'in profile {self.name}')
+            raise Timeout(
+                cause=cause,
+                log=f'Timeout while waiting for get_mss_doc lock on {name} '
+                f'in profile {self.name}',
+            )
 
     async def resolve_filename(self, name: str) -> str:
         """
-        Given an image name (i.e. a GUID), return the original filename or None if the image can't
-        be found.
+        Given an image name (i.e. a GUID), return the original filename or None if the
+        image can't be found.
 
         :param name: the image name (in this case the GUID)
         :return: the filename
@@ -312,11 +350,12 @@ class MSSProfile(AbstractProfile):
 
     async def resolve_original_size(self, name: str) -> int:
         """
-        Given an image name (i.e. a GUID), return the size of the original image. This relies on the
-        server which is actually serving up the original file data telling us how big the file is
-        through a content-length header. This means we're using the actual filesize, not relying on
-        the data EMu has to hand (which, if the file has been modified directly on disk, may not be
-        correct and would cause issues if we presented an incorrect content-length).
+        Given an image name (i.e. a GUID), return the size of the original image. This
+        relies on the server which is actually serving up the original file data telling
+        us how big the file is through a content-length header. This means we're using
+        the actual filesize, not relying on the data EMu has to hand (which, if the file
+        has been modified directly on disk, may not be correct and would cause issues if
+        we presented an incorrect content-length).
 
         :param name: the image name (in this case the GUID)
         :return: the size of the original image in bytes
@@ -332,8 +371,8 @@ class MSSProfile(AbstractProfile):
 
     async def stream_original(self, name: str, chunk_size: int = 4096):
         """
-        Async generator which yields the bytes of the original image for the given image name (EMu
-        IRN). If the image isn't available then nothing is yielded.
+        Async generator which yields the bytes of the original image for the given image
+        name (EMu IRN). If the image isn't available then nothing is yielded.
 
         :param name: the name of the image (EMu IRN)
         :param chunk_size: the size of the chunks to yield
@@ -392,19 +431,19 @@ def rebuild_data(parsed_data: dict) -> dict:
 
 
 def rebuild_dict_or_list(
-    value: Union[dict, list]
+    value: Union[dict, list],
 ) -> Union[int, str, bool, float, dict, list, None]:
     """
     Rebuild a dict or a list inside the parsed dict.
 
     :param value: a dict which can either be for structure or a value, or a list of
-                  either value or structure dicts
+        either value or structure dicts
     :return: a dict, list, or value
     """
     if isinstance(value, dict):
-        if "_u" in value:
+        if '_u' in value:
             # this is a value dict, return the original value
-            return value["_u"]
+            return value['_u']
         else:
             # this is a structural dict, pass each value through this function but
             # filter out fields that start with an underscore, unless they are the
@@ -412,7 +451,7 @@ def rebuild_dict_or_list(
             return {
                 key: rebuild_dict_or_list(value)
                 for key, value in value.items()
-                if not key.startswith("_") or key == "_id"
+                if not key.startswith('_') or key == '_id'
             }
     elif isinstance(value, list):
         # pass each element of the list through this function
@@ -428,7 +467,9 @@ class MSSElasticsearchHandler:
     Class that handles requests to Elasticsearch for the MSS profile.
     """
 
-    def __init__(self, es_hosts: List[str], limit: int = 20, mss_index: str = 'data-mss-latest'):
+    def __init__(
+        self, es_hosts: List[str], limit: int = 20, mss_index: str = 'data-mss-latest'
+    ):
         """
         :param es_hosts: a list of elasticsearch hosts to use
         :param limit: the maximum number of simultaneous connections that can be made to
@@ -441,17 +482,24 @@ class MSSElasticsearchHandler:
 
     async def get_mss_doc(self, guid: str) -> Tuple[int, Optional[dict]]:
         """
-        Given a GUID, return the number of MSS doc hits and the first hit from the MSS index.
+        Given a GUID, return the number of MSS doc hits and the first hit from the MSS
+        index.
 
         :param guid: the GUID of the image
         :return: the total number of hits and the first hit's source
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'data.guid._k': guid}).extra(size=1, track_total_hits=True)
+        search = (
+            Search()
+            .filter('term', **{'data.guid._k': guid})
+            .extra(size=1, track_total_hits=True)
+        )
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
             total = result['hits']['total']['value']
-            first_doc = next((doc['_source']['data'] for doc in result['hits']['hits']), None)
+            first_doc = next(
+                (doc['_source']['data'] for doc in result['hits']['hits']), None
+            )
             if first_doc:
                 first_doc = rebuild_data(first_doc)
             return total, first_doc
@@ -464,11 +512,17 @@ class MSSElasticsearchHandler:
         :return: the total hits and the GUID (or None if there are no hits)
         """
         search_url = f'{next(self.es_hosts)}/{self.mss_index}/_search'
-        search = Search().filter('term', **{'data.old_asset_id._k': asset_id}).extra(size=1, track_total_hits=True)
+        search = (
+            Search()
+            .filter('term', **{'data.old_asset_id._k': asset_id})
+            .extra(size=1, track_total_hits=True)
+        )
         async with self.es_session.post(search_url, json=search.to_dict()) as response:
             result = await response.json(encoding='utf-8')
             total = result['hits']['total']['value']
-            first_doc = next((doc['_source']['data'] for doc in result['hits']['hits']), None)
+            first_doc = next(
+                (doc['_source']['data'] for doc in result['hits']['hits']), None
+            )
             if first_doc:
                 guid = first_doc['guid']['_u']
             else:
@@ -484,11 +538,12 @@ class MSSElasticsearchHandler:
         try:
             health_url = f'{next(self.es_hosts)}/_cluster/health'
             start_time = time.monotonic()
-            async with self.es_session.get(health_url,
-                                           timeout=ClientTimeout(total=5)) as response:
+            async with self.es_session.get(
+                health_url, timeout=ClientTimeout(total=5)
+            ) as response:
                 return {
                     'status': (await response.json())['status'],
-                    'response_time': time.monotonic() - start_time
+                    'response_time': time.monotonic() - start_time,
                 }
         except Exception as e:
             return {
@@ -505,6 +560,7 @@ class MSSSourceFile(Fetchable):
     """
     Fetchable subclass representing an image in the MSS that can be retrieved.
     """
+
     emu_irn: int
     file: str
     is_original: bool
@@ -532,7 +588,6 @@ class MSSSourceFile(Fetchable):
 
 
 class StoreStreamError(Exception):
-
     def __init__(self, source: MSSSourceFile, url: str, cause: ClientError):
         super().__init__()
         self.source = source
@@ -546,13 +601,24 @@ class StoreStreamNoLength(Exception):
 
 class MSSSourceStore(FetchCache):
     """
-    Class that controls fetching source files from the MSS and then storing them in a cache and
-    streaming them to users directly.
+    Class that controls fetching source files from the MSS and then storing them in a
+    cache and streaming them to users directly.
     """
 
-    def __init__(self, root: Path, pool: Executor, mss_url: str, max_size: int, ttl: float,
-                 mss_limit: int = 20, dams_limit: int = 5, mss_ssl: bool = True,
-                 dams_ssl: bool = True, quality: int = 85, subsampling: str = '4:2:0'):
+    def __init__(
+        self,
+        root: Path,
+        pool: Executor,
+        mss_url: str,
+        max_size: int,
+        ttl: float,
+        mss_limit: int = 20,
+        dams_limit: int = 5,
+        mss_ssl: bool = True,
+        dams_ssl: bool = True,
+        quality: int = 85,
+        subsampling: str = '4:2:0',
+    ):
         """
         :param root: the path to store the data
         :param pool: the general purpose pool for offloading processing if necessary
@@ -603,10 +669,10 @@ class MSSSourceStore(FetchCache):
     @asynccontextmanager
     async def _open_stream(self, source: MSSSourceFile) -> ClientResponse:
         """
-        Opens a stream to the requested source data file. This is returned in the form of an aiohttp
-        ClientResponse object which will be correctly closed once this context manager exits. The
-        response may come from the MSS or it may come from the old dams service (via the damsurl
-        file).
+        Opens a stream to the requested source data file. This is returned in the form
+        of an aiohttp ClientResponse object which will be correctly closed once this
+        context manager exits. The response may come from the MSS or it may come from
+        the old dams service (via the damsurl file).
 
         :param source: the source file requested
         :return: a ClientResponse object
@@ -652,8 +718,9 @@ class MSSSourceStore(FetchCache):
 
     async def get_file_size(self, source: MSSSourceFile) -> int:
         """
-        Returns the file size of the given source by connecting to the backend service that can
-        provide the source and returning the content-length. No body data is read, just the headers.
+        Returns the file size of the given source by connecting to the backend service
+        that can provide the source and returning the content-length. No body data is
+        read, just the headers.
 
         :param source: the source
         :return: the size of the file in bytes
@@ -666,8 +733,8 @@ class MSSSourceStore(FetchCache):
 
     async def check_access(self, emu_irn: int) -> bool:
         """
-        Check whether the EMu multimedia IRN is valid according to the APS (which is a part of the
-        MSS).
+        Check whether the EMu multimedia IRN is valid according to the APS (which is a
+        part of the MSS).
 
         :param emu_irn: the EMu multimedia IRN
         :return: True if it's ok, False if not
@@ -686,12 +753,18 @@ class MSSSourceStore(FetchCache):
         status['error_breakdown'] = self.stream_errors
         try:
             start_time = time.monotonic()
-            async with self.mss_session.get('/nhmlive/status',
-                                            timeout=ClientTimeout(total=5)) as response:
+            async with self.mss_session.get(
+                '/nhmlive/status', timeout=ClientTimeout(total=5)
+            ) as response:
                 status['mss_status'] = {
                     **(await response.json()),
                     'response_time': time.monotonic() - start_time,
                 }
+        except asyncio.TimeoutError:
+            status['mss_status'] = {
+                'status': 'unreachable',
+                'error': 'Timed out',
+            }
         except Exception as e:
             status['mss_status'] = {
                 'status': 'unreachable',
@@ -701,8 +774,8 @@ class MSSSourceStore(FetchCache):
 
     async def close(self):
         """
-        Close down the store, this will simply close out our sessions and pools, all the files are
-        left on the disk.
+        Close down the store, this will simply close out our sessions and pools, all the
+        files are left on the disk.
         """
         await self.mss_session.close()
         await self.dm_session.close()

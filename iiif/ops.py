@@ -1,16 +1,17 @@
-from PIL import ImageOps
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain
-from jpegtran import JPEGImage
-from jpegtran.lib import Transformation
 from pathlib import Path
 from typing import List
 
+from jpegtran import JPEGImage
+from jpegtran.lib import Transformation
+from PIL import ImageOps
+
 from iiif.exceptions import InvalidIIIFParameter
 from iiif.profiles.base import ImageInfo
-from iiif.utils import to_pillow, to_jpegtran, disable_bomb_errors
+from iiif.utils import disable_bomb_errors, to_jpegtran, to_pillow
 
 # this server currently supports IIIF level2
 IIIF_LEVEL = 2
@@ -21,6 +22,7 @@ class Region:
     """
     This op is IIIF level 2 compliant: https://iiif.io/api/image/3.0/compliance/#31-region.
     """
+
     x: int
     y: int
     w: int
@@ -43,8 +45,8 @@ class Region:
     @staticmethod
     def parse(region: str, info: ImageInfo) -> 'Region':
         """
-        Given a region parameter, parse it into a Region object. If the region parameter is invalid,
-        an exception is thrown.
+        Given a region parameter, parse it into a Region object. If the region parameter
+        is invalid, an exception is thrown.
 
         :param region: the region param string
         :param info: the ImageInfo object
@@ -56,10 +58,14 @@ class Region:
         if region == 'square':
             if info.width < info.height:
                 # the image is portrait, we need to crop out a centre square the size of the width
-                return Region(0, round((info.height - info.width) / 2), info.width, info.width)
+                return Region(
+                    0, round((info.height - info.width) / 2), info.width, info.width
+                )
             elif info.width > info.height:
                 # the image is landscape, we need to crop out a centre square the size of the height
-                return Region(round((info.width - info.height) / 2), 0, info.height, info.height)
+                return Region(
+                    round((info.width - info.height) / 2), 0, info.height, info.height
+                )
             else:
                 # the image is already square, return the whole thing
                 return Region(0, 0, info.width, info.height, full=True)
@@ -86,7 +92,9 @@ class Region:
                         w = info.width - x
                     if y + h > info.height:
                         h = info.height - y
-                    return Region(x, y, w, h, full=(w == info.width and h == info.height))
+                    return Region(
+                        x, y, w, h, full=(w == info.width and h == info.height)
+                    )
 
         # if we get here, the region is no good :(
         raise InvalidIIIFParameter('Region', region)
@@ -113,12 +121,15 @@ class Region:
             x_shift = self.x % 16
             y_shift = self.y % 16
             # crop the image using the shifted x and y and the shifted width and height
-            image = image.crop(self.x - x_shift, self.y - y_shift,
-                               self.w + x_shift, self.h + y_shift)
+            image = image.crop(
+                self.x - x_shift, self.y - y_shift, self.w + x_shift, self.h + y_shift
+            )
             # now shift over to pillow for the final crop
             pillow_image = to_pillow(image)
             # do the final crop to get us the desired size
-            pillow_image = pillow_image.crop((x_shift, y_shift, x_shift + self.w, y_shift + self.h))
+            pillow_image = pillow_image.crop(
+                (x_shift, y_shift, x_shift + self.w, y_shift + self.h)
+            )
             return to_jpegtran(pillow_image)
         else:
             # if the crop has an origin divisible by 16 then we can just use jpegtran directly
@@ -130,6 +141,7 @@ class Size:
     """
     This op is IIIF level 2 compliant: https://iiif.io/api/image/3.0/compliance/#32-size.
     """
+
     w: int
     h: int
     max: bool = False
@@ -143,8 +155,8 @@ class Size:
     @staticmethod
     def parse(size: str, region: Region) -> 'Size':
         """
-        Given a size parameter, parse it into a Size object. If the size parameter is invalid, an
-        exception is thrown.
+        Given a size parameter, parse it into a Size object. If the size parameter is
+        invalid, an exception is thrown.
 
         :param size: the size param string
         :param region: the parsed Region object
@@ -208,6 +220,7 @@ class Rotation:
     """
     This op is IIIF level 2 compliant: https://iiif.io/api/image/3.0/compliance/#33-rotation.
     """
+
     # IIIF suggests only supporting rotating by 90 unless the png format is supported so that the
     # background can be made transparent
     angle: int
@@ -222,8 +235,8 @@ class Rotation:
     @staticmethod
     def parse(rotation: str) -> 'Rotation':
         """
-        Given a rotation parameter, parse it into a Rotation object. If the rotation parameter is
-        invalid, an exception is thrown.
+        Given a rotation parameter, parse it into a Rotation object. If the rotation
+        parameter is invalid, an exception is thrown.
 
         :param rotation: the rotation param string
         :return: a Rotation
@@ -243,9 +256,9 @@ class Rotation:
 
     def process(self, image: JPEGImage) -> JPEGImage:
         """
-        Processes a IIIF rotation parameter which can involve mirroring and/or rotating. We could do
-        this in jpegtran but only if the width and height were divisible by 16 so we'll just do it
-        in pillow for ease.
+        Processes a IIIF rotation parameter which can involve mirroring and/or rotating.
+        We could do this in jpegtran but only if the width and height were divisible by
+        16 so we'll just do it in pillow for ease.
 
         :param image: a jpegtran JPEGImage object
         :return: a jpegtran JPEGImage object
@@ -262,6 +275,7 @@ class Quality(Enum):
     """
     This op is IIIF level 2 compliant: https://iiif.io/api/image/3.0/compliance/#34-quality.
     """
+
     default = ('default',)
     color = ('color', 'colour')
     gray = ('gray', 'grey')
@@ -270,13 +284,15 @@ class Quality(Enum):
     @staticmethod
     def extras() -> List[str]:
         """
-        Returns the values that should be use in the info.json response. This should include
-        eveything except the default value.
+        Returns the values that should be use in the info.json response. This should
+        include eveything except the default value.
 
         :return: a list of extra qualities available on this IIIF server
         """
-        return list(chain.from_iterable(
-            quality.value for quality in Quality if quality != Quality.default)
+        return list(
+            chain.from_iterable(
+                quality.value for quality in Quality if quality != Quality.default
+            )
         )
 
     def __str__(self) -> str:
@@ -285,8 +301,8 @@ class Quality(Enum):
     @staticmethod
     def parse(quality: str) -> 'Quality':
         """
-        Given a quality parameter, parse it into a Quality object. If the quality parameter is
-        invalid, an exception is thrown.
+        Given a quality parameter, parse it into a Quality object. If the quality
+        parameter is invalid, an exception is thrown.
 
         :param quality: the quality param string
         :return: a Quality
@@ -299,9 +315,9 @@ class Quality(Enum):
 
     def process(self, image: JPEGImage) -> JPEGImage:
         """
-        Processes a IIIF quality parameter. This usually results in the same image being returned as
-        was passed in but can involve conversion to grayscale or pure black and white, single bit
-        encoded images.
+        Processes a IIIF quality parameter. This usually results in the same image being
+        returned as was passed in but can involve conversion to grayscale or pure black
+        and white, single bit encoded images.
 
         :param image: a jpegtran JPEGImage object
         :return: a jpegtran JPEGImage object
@@ -321,6 +337,7 @@ class Format(Enum):
     """
     This op is IIIF level 2 compliant: https://iiif.io/api/image/3.0/compliance/#35-format.
     """
+
     jpg = 'jpg'
     png = 'png'
 
@@ -330,8 +347,8 @@ class Format(Enum):
     @staticmethod
     def parse(fmt: str) -> 'Format':
         """
-        Given a format parameter, parse it into a Format object. If the quality parameter is
-        invalid, an exception is thrown.
+        Given a format parameter, parse it into a Format object. If the quality
+        parameter is invalid, an exception is thrown.
 
         :param fmt: the format param string
         :return: a Format
@@ -344,8 +361,8 @@ class Format(Enum):
 
     def process(self, image: JPEGImage, output_path: Path):
         """
-        Processes the IIIF format parameter by writing the image to the output path in the requested
-        format.
+        Processes the IIIF format parameter by writing the image to the output path in
+        the requested format.
 
         :param image: a jpegtran JPEGImage object
         :param output_path: the path to write the file to
@@ -370,15 +387,25 @@ class IIIFOps:
         """
         :return: the path where the image produced by this set of ops should be stored.
         """
-        return Path(str(self.region), str(self.size), str(self.rotation),
-                    f'{self.quality}.{self.format}')
+        return Path(
+            str(self.region),
+            str(self.size),
+            str(self.rotation),
+            f'{self.quality}.{self.format}',
+        )
 
     @staticmethod
-    def parse(info: ImageInfo, region: str = 'full', size: str = 'max', rotation: str = '0',
-              quality: str = 'default', fmt: str = 'jpg') -> 'IIIFOps':
+    def parse(
+        info: ImageInfo,
+        region: str = 'full',
+        size: str = 'max',
+        rotation: str = '0',
+        quality: str = 'default',
+        fmt: str = 'jpg',
+    ) -> 'IIIFOps':
         """
-        Given a set of IIIF string parameters, parse each and return a IIIFOps object. If any of the
-        parameters is invalid then an exception is raised.
+        Given a set of IIIF string parameters, parse each and return a IIIFOps object.
+        If any of the parameters is invalid then an exception is raised.
 
         :param info: an ImageInfo object
         :param region: the region parameter
@@ -394,7 +421,7 @@ class IIIFOps:
             Size.parse(size, parsed_region),
             Rotation.parse(rotation),
             Quality.parse(quality),
-            Format.parse(fmt)
+            Format.parse(fmt),
         )
 
     def process(self, source_path: Path, output_path: Path):
