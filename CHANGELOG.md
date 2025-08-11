@@ -1,3 +1,39 @@
+## v1.0.1 (2025-08-11)
+
+### Fix
+
+- use a version of setuptools that supports PEP639
+- catch specific timeout error
+
+### Docs
+
+- add docs configs
+
+### Style
+
+- auto reformat python files
+
+### Tests
+
+- move test utils into helpers folder
+
+### Build System(s)
+
+- exclude docs folder
+- convert to pyproject
+
+### CI System(s)
+
+- update github workflows
+
+### Chores/Misc
+
+- fix license specifier
+- use basic string license specifier
+- fix file endings
+- add PR templates, contributing guidelines, etc
+- add pre-commit config
+
 ## v1.0.0 (2025-04-19)
 
 ### Breaking Changes

@@ -1,6 +1,6 @@
 [project]
 name = "iiif-image-server"
-version = "1.0.0"
+version = "1.0.1"
 description = "A IIIF enabled media server primarily used by the NHM Data Portal"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -68,7 +68,7 @@ exclude = ["tests", "docs"]
 
 [tool.commitizen]
 name = "cz_nhm"
-version = "1.0.0"
+version = "1.0.1"
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_incremental = true
