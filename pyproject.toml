@@ -35,7 +35,7 @@ dependencies = [
     # install directly from github
     "jpegtran-cffi @ git+https://github.com/jbaiter/jpegtran-cffi.git@70928eb#egg=jpegtran-cffi",
     "loky==3.1.0",
-    "pillow==9.1.0",
+    "pillow==10.3.0",
     "pyyaml==6.0",
     "uvicorn[standard]==0.17.6",
 ]
